@@ -31,7 +31,7 @@ now; meal entities using it land in M3.
 |-----------|-------|---------|
 | `users` | `openid` **unique** | one document per WeChat user; idempotent upsert |
 | `family_profiles` | `ownerOpenid` (asc) + `createdAt` (asc) | owner-scoped list, deterministic order |
-| `idempotency_keys` | `ownerOpenid` + `operation` + `requestId` **unique (composite)** | request-level idempotency for create operations |
+| `idempotency_keys` | `ownerOpenid` + `operation` + `requestId` **composite (currently non-unique)** | best-effort request idempotency for create ops (promote to unique index at M3) |
 
 > Race condition note: CloudBase document DB does not offer a transactional `findOrCreate`
 > with a guaranteed unique constraint in the same call as a normal query+insert. The
@@ -40,17 +40,26 @@ now; meal entities using it land in M3.
 > enforced `upsert`, switch to it; until then, the query-then-insert is the documented
 > mitigation and is safe under normal single-caller concurrency (one openid per user).
 
-> **Idempotency residual-race note (M1.1):** the create path performs a
-> `findIdempotencyKey` → (create profile) → `saveIdempotencyKey` sequence, which is **not**
-> atomic. Two truly-concurrent requests carrying the *same* `requestId` could both miss the
-> lookup and create two profiles before either writes the key. This is mitigated (not
-> eliminated) at M1 because (a) the client sends a stable `requestId` per edit session and
-> guards against in-flight double-submit in the UI, and (b) the practical concurrency for a
-> single user tapping "save" is one. The **generic, race-free** design is deferred to M3:
-> promote `idempotency_keys` to a composite **unique index** on
-> `(ownerOpenid, operation, requestId)` and treat a duplicate-key insert error as "already
-> processed → return the stored `resultId`." This makes the key write the atomic gate
-> instead of the read. See ARCHITECTURE.md § Idempotency.
+> **Idempotency is best-effort (尽力式请求幂等) — M1.1.** Profile creation uses *client
+> in-flight protection plus server-side request replay handling*: the client generates a
+> stable `requestId` per edit session and the server records it in `idempotency_keys`, keyed
+> by `(ownerOpenid, operation, requestId)`, then replays the originally created profile on a
+> repeat with the same `requestId`. This is **best-effort request idempotency**, **not**
+> strict/atomic idempotency. Key facts:
+> - **Same `requestId`** → normally returns the original result (no duplicate created).
+> - **Different `requestId`s** → always treated as a new intent, so profiles with **identical
+>   names** are allowed (names are not a uniqueness key).
+> - The `findIdempotencyKey` → (create profile) → `saveIdempotencyKey` sequence is **not
+>   atomic**; two truly-concurrent same-`requestId` calls could both miss the lookup and each
+>   create a profile before either writes the key. This is the **residual concurrency race**.
+> - The **UI in-flight guard** (`submitting` flag) reduces the practical risk for this
+>   single-owner family MVP, where one user taps "save" once.
+> - A future **generic atomic** solution should claim the idempotency key **before** entity
+>   creation — e.g. a **unique** composite index on `(ownerOpenid, operation, requestId)` so a
+>   duplicate-key insert error means "already processed → return the stored `resultId`."
+> - That stronger implementation is scheduled for **M3**, when meal creation also requires
+>   idempotency (same pattern, higher write volume).
+> See ARCHITECTURE.md §5b and SECURITY.md §3.
 
 ---
 
@@ -98,8 +107,8 @@ fallback with zero data repair required.
 > **`name` is NOT a uniqueness key (M1.1).** The same owner may hold multiple profiles with
 > an identical `name` (and even identical `name + relation`) — e.g. two children both called
 > "宝宝". No name-based deduplication is performed on create. Accidental double-submits are
-> prevented by (a) a UI in-flight guard and (b) request-level idempotency via a
-> client-generated `requestId` (see `idempotency_keys`), **not** by comparing names.
+> prevented by (a) a UI in-flight guard and (b) **best-effort** request-level idempotency via
+> a client-generated `requestId` (see `idempotency_keys`), **not** by comparing names.
 
 **M1 scope:** `name` and `relation` are the only editable attributes. No birth date, height,
 weight, calorie target, or medical data yet.
@@ -126,10 +135,12 @@ Archive/soft-delete will be designed later.
 | resultId | string | ✓ | `_id` of the entity created by the first request |
 | createdAt | number | ✓ | epoch ms |
 
-**Purpose:** make write operations replay-safe. The tuple `(ownerOpenid, operation,
-requestId)` uniquely identifies one logical intent. A repeated request with the same tuple
-returns the originally created entity (`resultId`) instead of creating a duplicate; a
-*different* `requestId` is always treated as a new intent — even with identical payload.
+**Purpose:** make write operations **best-effort** replay-safe. The tuple
+`(ownerOpenid, operation, requestId)` identifies one logical intent. A repeated request with
+the same tuple returns the originally created entity (`resultId`) instead of creating a
+duplicate; a *different* `requestId` is always treated as a new intent — even with identical
+payload. This is **best-effort request idempotency (尽力式请求幂等)**, not an atomic guarantee
+(see the race note above).
 
 **Client contract (create profile):**
 ```json

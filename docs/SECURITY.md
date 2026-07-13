@@ -34,8 +34,9 @@ Create these in the CloudBase console (DB → collection → index management):
   fast).
 - `family_profiles`: `ownerOpenid` (asc) + `createdAt` (asc) — owner-scoped list in a
   deterministic order.
-- `idempotency_keys`: `ownerOpenid` + `operation` + `requestId` — composite. **Recommended
-  unique** at M3 so the key insert becomes the atomic idempotency gate (see the note below).
+- `idempotency_keys`: `ownerOpenid` + `operation` + `requestId` — composite (**currently
+  non-unique**). **Recommended unique** at M3 so the key insert becomes the atomic idempotency
+  gate (see the note below).
 
 > **Race-condition note (documented, not silently assumed):** CloudBase document DB has no
 > single-call transactional `findOrCreate` with a hard unique constraint. `login` mitigates
@@ -46,11 +47,14 @@ Create these in the CloudBase console (DB → collection → index management):
 
 > **Create idempotency (M1.1):** `profileApi.create` no longer deduplicates by `name`.
 > Duplicate submissions are collapsed by a client `requestId` recorded in `idempotency_keys`,
-> keyed by `(ownerOpenid, operation, requestId)`, plus a client in-flight guard. The
+> keyed by `(ownerOpenid, operation, requestId)`, plus a client in-flight guard. This is
+> **best-effort request idempotency (尽力式请求幂等)** — *client in-flight protection plus
+> server-side request replay handling* — **not** a strict/atomic guarantee. The
 > read→create→write-key path is **not atomic**; two truly-concurrent same-`requestId` calls
-> could both create a profile. This residual race is accepted for M1 (single-user tap
-> concurrency + UI guard). **M3 hardening:** promote the composite index to **unique** and
-> treat a duplicate-key insert as "already processed → return stored `resultId`."
+> could both create a profile (residual concurrency race). This residual race is accepted for
+> M1 (single-user tap concurrency + UI guard). **M3 hardening:** promote the composite index to
+> **unique** and treat a duplicate-key insert as "already processed → return stored
+> `resultId`."
 
 > **Default-profile source of truth (M1.1):** the default profile is represented **only** by
 > `users.defaultFamilyProfileId`. `family_profiles` carries no `isDefault` field; `setDefault`

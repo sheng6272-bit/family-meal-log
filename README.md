@@ -100,8 +100,8 @@ for device test steps.
 |---|-----------|---------|
 | M0 | **Foundation & shell** ✅ | Repo structure, docs, shared layer, compilable shell, validation |
 | M1 | **Identity & family profiles** ✅ | Server-trusted login + `profileApi`; profiles UI; active-profile state; shared-runtime packaging |
-| M2 | Food catalog & portions | Foods, portion units, gram conversion UI |
-| M3 | Manual meal logging | Add/save meals, per-item + daily nutrition totals |
+| M2 | Food catalog & portion units | System + ad-hoc foods, portion units, gram conversion, single-food live nutrition (no meal saving) |
+| M3 | Manual meal logging | Combine foods into a meal; meal type/date; save & reload |
 | M4 | Daily history | Browse meals by day, edit, delete |
 | M5 | Saved foods & recipes | Reusable foods and simple family recipes |
 | M6 | Photo upload | CloudBase storage upload workflow |
@@ -109,6 +109,10 @@ for device test steps.
 | M8 | Real AI provider | Swap mock for a real provider behind the same interface |
 
 Full breakdown with acceptance criteria: `docs/DEVELOPMENT_PLAN.md`.
+
+> **M2 scope note:** M2 covers *only* the food catalog and portion units (single-food live
+> nutrition). It does **not** save meals — `mealApi` create/list/get/update/delete, daily meal
+> history, recipes, photo upload, and AI recognition are later milestones (M3–M8).
 
 ## 8. Repository layout
 

@@ -56,9 +56,11 @@ default (safe fallback) and active-profile resolution falls through to the first
    (duplicate-tap guard).
 3. `profileApi.create` validates + normalizes server-side, sets `ownerOpenid` server-side,
    and (for the first profile) auto-sets it as the default. The call carries the `requestId`;
-   the server enforces **request-level idempotency** on `(ownerOpenid, 'create', requestId)`
-   — a retried submit with the same `requestId` returns the originally created profile instead
-   of a duplicate.
+   the server enforces **best-effort request idempotency (尽力式请求幂等)** on
+   `(ownerOpenid, 'create', requestId)` — *client in-flight protection plus server-side
+   request replay handling* — a retried submit with the same `requestId` returns the originally
+   created profile instead of a duplicate. (This is **not** an atomic guarantee; see the race
+   note in DATA_MODEL.md / SECURITY.md §3.)
 4. On success the new profile becomes the active profile for this session; the list refreshes.
 
 > **Duplicate names are allowed.** There is no name-based deduplication: the same owner may

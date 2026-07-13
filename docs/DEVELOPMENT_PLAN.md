@@ -31,23 +31,33 @@ identity (no openid on the client).
 - Unknown input fields are not persisted; client-supplied `ownerOpenid` is ignored.
 - Access is owner-scoped: another user cannot list/update/set-default the caller's profiles.
 - Stale local active-profile id falls back correctly; default persists across a fresh login.
-- Repeated submit does not create duplicate profiles (server-side dedupe + UI guard).
+- Repeated submit does not create duplicate profiles (best-effort request idempotency via
+  `requestId` + UI in-flight guard; see DATA_MODEL.md idempotency note).
 - Shared runtime is packaged into `login` and `profileApi`; no secrets committed.
 - **M1 is marked complete only after these acceptance tests pass** (they do).
 
-## M2 — Food catalog & portions ⬜
-**Goal:** foods and portion→gram conversion in the UI.
-**Scope:** seed a small system `foods` set; food search/pick; portion units (generic +
-food-specific); quantity input; live item nutrition via shared layer.
+## M2 — Food catalog & portion units ⬜
+**Goal:** foods and portion→gram conversion in the UI (no meal persistence yet).
+**Scope (exactly):**
+- A small curated **system food seed dataset**.
+- **Food search and selection**.
+- **User-defined ad-hoc foods**.
+- **Generic portion units** (e.g. g, ml) and **food-specific portion units**.
+- **Portion-to-gram conversion**.
+- **Live nutrition preview for a single food item**.
+- **Source and version metadata** for nutrition records.
+**Explicitly excluded from M2:** saving meals; `mealApi` create/list/get/update/delete;
+daily meal history; recipes; photo upload; AI recognition. Meal persistence belongs to M3.
 **Acceptance:**
 - Selecting a food + unit + quantity shows correct grams and calories/macros matching the
   shared nutrition tests.
 - Invalid inputs are rejected by shared validators with clear messages.
+- A food carries source + version metadata.
 
 ## M3 — Manual meal logging ⬜
-**Goal:** the primary end-to-end workflow.
-**Scope:** build a meal (slot + items), live subtotals, save via `mealApi.create` with
-server-side re-validation and totals recomputation.
+**Goal:** the primary end-to-end workflow — combine foods into a meal and persist it.
+**Scope:** combine **multiple food items** into a meal; **meal type and date**; server-side
+validation and recomputation; **save and reload meals** via `mealApi`.
 **Acceptance:**
 - A meal saves and reloads identically; `totals` equal the confirmed-item sum.
 - Server overwrites any client-sent totals (trust boundary verified).

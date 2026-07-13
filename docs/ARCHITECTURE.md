@@ -87,8 +87,9 @@ Schemas are defined in `shared/types.ts`; see `docs/DATA_MODEL.md`.
 **Required indexes (see `docs/SECURITY.md`):**
 - `users.openid` — unique (single-user-per-openid; upsert idempotency).
 - `family_profiles.ownerOpenid` + `family_profiles.createdAt` — owner-scoped list, createdAt ascending.
-- `idempotency_keys.(ownerOpenid, operation, requestId)` — composite; **should be unique** at
-  M3 to make the key insert the atomic idempotency gate (see §5b).
+- `idempotency_keys.(ownerOpenid, operation, requestId)` — composite (**currently
+  non-unique**); **promote to unique** at M3 to make the key insert the atomic idempotency
+  gate (see §5b).
 
 ## 5. Cloud-function responsibilities
 
@@ -113,6 +114,18 @@ Schemas are defined in `shared/types.ts`; see `docs/DATA_MODEL.md`.
 - `get` → one owned profile (used by the client when needed); `isDefault` computed as above.
 
 ### 5b. Idempotency & default-profile single source of truth (M1.1)
+
+**Best-effort request idempotency（尽力式请求幂等）.** Profile create uses *client in-flight
+protection plus server-side request replay handling*: the client emits a stable `requestId`
+per edit session; the server records `(ownerOpenid, operation='create', requestId)` in
+`idempotency_keys` and replays the original result on a repeat. This is **best-effort**, **not**
+strict/atomic idempotency (see DATA_MODEL.md idempotency note and SECURITY.md §3). Key facts:
+- **Same `requestId`** → normally returns the original result (no duplicate created).
+- **Different `requestId`s** → always a new intent, so profiles with identical names are allowed.
+- The read→create→write-key sequence is **not atomic** (residual concurrency race).
+- The **UI in-flight guard** reduces the practical risk for this single-owner family MVP.
+- A future **generic atomic** solution should claim the key **before** entity creation (unique
+  composite index); scheduled for **M3**, when meal creation also needs idempotency.
 
 **No name-based dedup.** Earlier M1 drafts risked treating `name` (or `name + relation`) as a
 uniqueness key. That is removed: names are free-form and non-unique per owner (two children
