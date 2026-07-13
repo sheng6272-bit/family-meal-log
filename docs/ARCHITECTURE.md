@@ -1,6 +1,7 @@
 # Architecture — Family Meal Log MVP
 
-> Status: **M0 foundation ✅**, **M1 identity & family profiles ✅** (acceptance tests green).
+> Status: **M0 foundation ✅**, **M1 identity & family profiles ✅**, **M1.1 hardening ✅**
+> (acceptance tests green — 91 checks).
 
 ## 1. High-level overview
 
@@ -72,8 +73,9 @@ Two independent layers of trust:
 
 | Collection | Key fields | Notes / access |
 |-----------|------------|----------------|
-| `users` | `openid`, `defaultFamilyProfileId` | one per WeChat user; **server-only** identity |
-| `family_profiles` | `ownerOpenid`, `name`, `relation` | owner-only; M1 CRUD via `profileApi` |
+| `users` | `openid`, `defaultFamilyProfileId` | one per WeChat user; **server-only** identity; `defaultFamilyProfileId` is the sole default source of truth |
+| `family_profiles` | `ownerOpenid`, `name`, `relation` | owner-only; M1 CRUD via `profileApi`; **no `isDefault` stored** |
+| `idempotency_keys` | `ownerOpenid`, `operation`, `requestId`, `resultId` | request-level idempotency for create ops (M1.1) |
 | `foods` | `name`, `per100g`, `source`, `ownerOpenid?`, `isSaved` | system foods readable; user foods owner-only (M2) |
 | `portion_units` | `label`, `gramsPerUnit`, `foodId?` | generic + food-specific (M2) |
 | `meals` | `ownerOpenid`, `familyProfileId`, `date`, `mealType`, `items[]`, `totals` | owner-only; indexed by (`ownerOpenid`,`familyProfileId`,`date`) (M3) |
@@ -85,6 +87,8 @@ Schemas are defined in `shared/types.ts`; see `docs/DATA_MODEL.md`.
 **Required indexes (see `docs/SECURITY.md`):**
 - `users.openid` — unique (single-user-per-openid; upsert idempotency).
 - `family_profiles.ownerOpenid` + `family_profiles.createdAt` — owner-scoped list, createdAt ascending.
+- `idempotency_keys.(ownerOpenid, operation, requestId)` — composite; **should be unique** at
+  M3 to make the key insert the atomic idempotency gate (see §5b).
 
 ## 5. Cloud-function responsibilities
 
@@ -97,12 +101,43 @@ Schemas are defined in `shared/types.ts`; see `docs/DATA_MODEL.md`.
 
 ### profileApi dispatch (M1)
 
-- `list` → caller's profiles, createdAt ascending, client-safe shape (no ownerOpenid).
+- `list` → caller's profiles, createdAt ascending, client-safe shape (no ownerOpenid); each
+  DTO's `isDefault` is **computed** as `profile.id === user.defaultFamilyProfileId`.
 - `create` → normalize + validate; ownership set server-side; first profile auto-default.
+  Accepts a client `requestId` for **request-level idempotency** (see §5b); **no name-based
+  deduplication** — the same owner may create profiles with identical names.
 - `update` → editable fields only (`name`, `relation`); ownership enforced; unknown/ownership
   fields rejected.
-- `setDefault` → sets `users.defaultFamilyProfileId` after ownership check.
-- `get` → one owned profile (used by the client when needed).
+- `setDefault` → sets **only** `users.defaultFamilyProfileId` after ownership check; never
+  mutates any profile document.
+- `get` → one owned profile (used by the client when needed); `isDefault` computed as above.
+
+### 5b. Idempotency & default-profile single source of truth (M1.1)
+
+**No name-based dedup.** Earlier M1 drafts risked treating `name` (or `name + relation`) as a
+uniqueness key. That is removed: names are free-form and non-unique per owner (two children
+named "宝宝" are valid). Duplicate *submissions* are handled at two layers instead:
+
+1. **Client UI guard** — a `submitting` in-flight flag on the profiles/profile-edit pages
+   prevents a second tap while a create call is outstanding.
+2. **Request-level idempotency** — the client generates a stable `requestId`
+   (`req_<time36>_<random>`) once per edit session and sends it with `create`. The server
+   looks up `(ownerOpenid, operation='create', requestId)` in `idempotency_keys`; a hit
+   returns the originally created profile, a miss creates the profile and records the key.
+   A *different* `requestId` is always a new intent, even with identical `name`/`relation`.
+   `requestId` is scoped by the trusted `ownerOpenid`, so different users may reuse the same
+   string safely.
+
+> **Residual race (documented, mitigated).** The read→create→write-key sequence is not
+> atomic; two simultaneous same-`requestId` calls could both miss the lookup. Mitigated by the
+> UI guard and single-user tap concurrency. The **generic race-free** design deferred to M3:
+> a **unique** composite index on `(ownerOpenid, operation, requestId)` so the key insert
+> itself is the gate — a duplicate-key error means "already processed, return `resultId`."
+
+**Default = single source of truth.** `users.defaultFamilyProfileId` is the only persisted
+default. `family_profiles` has **no** `isDefault` field. `setDefault` writes only the user
+record; the client-facing `isDefault` is computed in the DTO. A stale/missing default id
+yields no profile marked default (safe fallback, no repair needed).
 
 ## 6. Shared-runtime packaging (M1)
 
@@ -203,3 +238,15 @@ dev/prod guidance.
   arrives in M3.
 - **No nutrition goals / medical attributes in M1.** Profiles carry only `name` and
   `relation` for now.
+
+## 12. M1.1 hardening decisions (recorded)
+
+- **Names are not unique.** Name-based profile deduplication is removed. The same owner may
+  create multiple profiles with identical `name` (or `name + relation`).
+- **Idempotency is request-scoped, not content-scoped.** Duplicate submissions are prevented
+  by a client `requestId` + the `idempotency_keys` collection, keyed by
+  `(ownerOpenid, operation, requestId)`, plus a UI in-flight guard. Residual non-atomic race
+  is documented; the race-free unique-index design is deferred to M3.
+- **One source of truth for the default profile.** `users.defaultFamilyProfileId` is the only
+  persisted default state; `family_profiles` stores no `isDefault`; the client `isDefault`
+  flag is computed in the DTO; stale/missing default → safe fallback.

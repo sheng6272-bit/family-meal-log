@@ -36,21 +36,35 @@ never stored on the device.
 - From home, tap the active-profile card (or "管理家庭成员") → `profiles` page.
 - User can **select** a profile → it becomes the active profile for this session (local only;
   does not overwrite the server default unless the user explicitly sets default).
-- User can **set a profile as default** → `profileApi.setDefault` updates
-  `users.defaultFamilyProfileId` on the server.
+- User can **set a profile as default** → `profileApi.setDefault` updates **only**
+  `users.defaultFamilyProfileId` on the server (no profile document is rewritten). The
+  per-profile `isDefault` badge shown in the list is computed by the server DTO as
+  `profile.id === defaultFamilyProfileId`, so exactly one profile appears as default and
+  switching the default never requires a multi-document write.
 - Home refreshes to show the selected member's name.
 
 _Edge:_ no profiles yet → guided "创建第一个家庭成员" flow.
+_Edge:_ if the stored default id points at a removed/foreign profile, no profile is marked
+default (safe fallback) and active-profile resolution falls through to the first profile.
 
 ## 3. Create / edit a family profile (M1)
 
 **Create (from onboarding or profiles page):**
-1. `profile-edit` page (mode=create): enter **name** + choose **relation**.
+1. `profile-edit` page (mode=create): enter **name** + choose **relation**. On page load the
+   client generates a stable `requestId` (`req_<time36>_<random>`) for this edit session.
 2. Client trims the name and does a fast local check; submit is disabled while in flight
    (duplicate-tap guard).
-3. `profileApi.create` validates + normalizes server-side, sets `ownerOpenid` server-side, and
-   (for the first profile) auto-sets it as the default.
+3. `profileApi.create` validates + normalizes server-side, sets `ownerOpenid` server-side,
+   and (for the first profile) auto-sets it as the default. The call carries the `requestId`;
+   the server enforces **request-level idempotency** on `(ownerOpenid, 'create', requestId)`
+   — a retried submit with the same `requestId` returns the originally created profile instead
+   of a duplicate.
 4. On success the new profile becomes the active profile for this session; the list refreshes.
+
+> **Duplicate names are allowed.** There is no name-based deduplication: the same owner may
+> intentionally create two profiles with the same `name` (e.g. two children called "宝宝").
+> Only accidental *double-submits of the same intent* are collapsed, via the `requestId` +
+> the in-flight UI guard — never by comparing names or relations.
 
 **Edit:**
 1. From `profiles`, tap 编辑 on a profile → `profile-edit` (mode=edit) pre-filled.
@@ -62,6 +76,7 @@ _Edge:_ no profiles yet → guided "创建第一个家庭成员" flow.
 - Empty/whitespace name → "请输入姓名" (client) / `invalid_input` (server).
 - Invalid relation → caught by the picker (client) and rejected server-side.
 - Unknown/ownership fields in the payload → ignored server-side.
+- Duplicate name is **not** an error — it is a valid create (see the note above).
 
 ## 4. Manual meal logging (M3, planned; primary, always available)
 

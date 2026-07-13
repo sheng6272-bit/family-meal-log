@@ -31,6 +31,7 @@ now; meal entities using it land in M3.
 |-----------|-------|---------|
 | `users` | `openid` **unique** | one document per WeChat user; idempotent upsert |
 | `family_profiles` | `ownerOpenid` (asc) + `createdAt` (asc) | owner-scoped list, deterministic order |
+| `idempotency_keys` | `ownerOpenid` + `operation` + `requestId` **unique (composite)** | request-level idempotency for create operations |
 
 > Race condition note: CloudBase document DB does not offer a transactional `findOrCreate`
 > with a guaranteed unique constraint in the same call as a normal query+insert. The
@@ -38,6 +39,18 @@ now; meal entities using it land in M3.
 > and treating `openid` as the ownership key. If CloudBase later supports a unique-index
 > enforced `upsert`, switch to it; until then, the query-then-insert is the documented
 > mitigation and is safe under normal single-caller concurrency (one openid per user).
+
+> **Idempotency residual-race note (M1.1):** the create path performs a
+> `findIdempotencyKey` → (create profile) → `saveIdempotencyKey` sequence, which is **not**
+> atomic. Two truly-concurrent requests carrying the *same* `requestId` could both miss the
+> lookup and create two profiles before either writes the key. This is mitigated (not
+> eliminated) at M1 because (a) the client sends a stable `requestId` per edit session and
+> guards against in-flight double-submit in the UI, and (b) the practical concurrency for a
+> single user tapping "save" is one. The **generic, race-free** design is deferred to M3:
+> promote `idempotency_keys` to a composite **unique index** on
+> `(ownerOpenid, operation, requestId)` and treat a duplicate-key insert error as "already
+> processed → return the stored `resultId`." This makes the key write the atomic gate
+> instead of the read. See ARCHITECTURE.md § Idempotency.
 
 ---
 
@@ -55,12 +68,20 @@ now; meal entities using it land in M3.
 | _id | string | auto | internal document id |
 | openid | string | ✓ | WeChat openid; **unique**; **server-derived only** |
 | unionid | string | | when available; server-derived |
-| defaultFamilyProfileId | string | | last/selected profile (server-side default) |
+| defaultFamilyProfileId | string | | **single source of truth** for the default profile |
 | createdAt / updatedAt | number | ✓ | epoch ms |
 
 **Client contract:** the client NEVER receives `openid`/`unionid`. The `login` cloud function
 returns only `{ id: <_id>, defaultFamilyProfileId }`. Identity is resolved server-side on
 every call.
+
+**Default-profile single source of truth (M1.1):** `users.defaultFamilyProfileId` is the
+**only** persisted representation of which profile is the default. `setDefault` writes only
+this field — it never touches profile documents. There is **no** `isDefault` column on
+`family_profiles`; the client-facing `isDefault` flag is **computed in the DTO** as
+`profile.id === user.defaultFamilyProfileId`. A missing or stale `defaultFamilyProfileId`
+(pointing at a deleted/foreign profile) simply yields **no** profile marked default — a safe
+fallback with zero data repair required.
 
 ## 2. FamilyProfile — collection `family_profiles`  (M1)
 | Field | Type | Req | Notes |
@@ -70,6 +91,15 @@ every call.
 | name | string | ✓ | trimmed, non-empty, ≤ 30 chars |
 | relation | FamilyRelation | ✓ | one of `self \| spouse \| child \| parent \| other` |
 | createdAt / updatedAt | number | ✓ | |
+
+> **No `isDefault` field is stored here (M1.1).** Default state lives solely on
+> `users.defaultFamilyProfileId`; the client DTO computes `isDefault` at read time.
+
+> **`name` is NOT a uniqueness key (M1.1).** The same owner may hold multiple profiles with
+> an identical `name` (and even identical `name + relation`) — e.g. two children both called
+> "宝宝". No name-based deduplication is performed on create. Accidental double-submits are
+> prevented by (a) a UI in-flight guard and (b) request-level idempotency via a
+> client-generated `requestId` (see `idempotency_keys`), **not** by comparing names.
 
 **M1 scope:** `name` and `relation` are the only editable attributes. No birth date, height,
 weight, calorie target, or medical data yet.
@@ -85,6 +115,30 @@ weight, calorie target, or medical data yet.
 
 **Deletion:** out of scope for M1. Create / list / update / select / set-default only.
 Archive/soft-delete will be designed later.
+
+## 2b. IdempotencyKey — collection `idempotency_keys` (M1.1)
+| Field | Type | Req | Notes |
+|-------|------|-----|-------|
+| _id | string | auto | |
+| ownerOpenid | string | ✓ | owner; **server-derived only** |
+| operation | string | ✓ | logical operation, e.g. `create` (family profile) |
+| requestId | string | ✓ | client-generated high-entropy id, stable per edit session |
+| resultId | string | ✓ | `_id` of the entity created by the first request |
+| createdAt | number | ✓ | epoch ms |
+
+**Purpose:** make write operations replay-safe. The tuple `(ownerOpenid, operation,
+requestId)` uniquely identifies one logical intent. A repeated request with the same tuple
+returns the originally created entity (`resultId`) instead of creating a duplicate; a
+*different* `requestId` is always treated as a new intent — even with identical payload.
+
+**Client contract (create profile):**
+```json
+{ "action": "create",
+  "requestId": "req_<time36>_<random>",
+  "profile": { "name": "爸爸", "relation": "parent" } }
+```
+The server scopes the key by the trusted `ownerOpenid` (never by any client-supplied owner),
+so two different users may safely reuse the same `requestId` string without collision.
 
 ## 3. Food — collection `foods` (M2)
 | Field | Type | Req | Notes |
