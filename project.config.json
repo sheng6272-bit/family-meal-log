@@ -1,0 +1,21 @@
+{
+  "description": "Family Meal Log MVP - WeChat Mini Program project config (non-secret). Real appid and private settings live in project.private.config.json (git-ignored).",
+  "miniprogramRoot": "miniprogram/",
+  "cloudfunctionRoot": "cloudfunctions/",
+  "compileType": "miniprogram",
+  "libVersion": "3.5.0",
+  "setting": {
+    "urlCheck": true,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "typescript": true,
+    "useCompilerPlugins": ["typescript"],
+    "packNpmManually": false,
+    "nodeModules": false
+  },
+  "appid": "touristappid",
+  "projectname": "family-meal-log",
+  "condition": {}
+}

@@ -1,0 +1,23 @@
+.totals {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 16rpx;
+}
+.metric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.num {
+  font-size: 40rpx;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+.meal-slots {
+  display: flex;
+  gap: 24rpx;
+  margin-top: 16rpx;
+}
+.add-btn {
+  margin-top: 24rpx;
+}

@@ -1,0 +1,9 @@
+{
+  "name": "aiAnalyze",
+  "version": "0.1.0",
+  "description": "Provider-neutral meal photo analysis (mock provider only for now).",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

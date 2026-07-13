@@ -1,0 +1,27 @@
+<view class="container">
+  <view class="card">
+    <view class="title">选择餐次</view>
+    <view class="slots">
+      <view
+        wx:for="{{mealTypes}}"
+        wx:key="key"
+        data-key="{{item.key}}"
+        bindtap="onSelectMealType"
+        class="slot {{selectedMealType === item.key ? 'slot-active' : ''}}"
+      >{{item.label}}</view>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="title">食物条目</view>
+    <view class="text-weak">手动记录是主要且可靠的方式。</view>
+    <button class="btn-primary item-btn" bindtap="onAddManualItem">手动添加食物</button>
+  </view>
+
+  <view class="card" wx:if="{{aiEnabled}}">
+    <view class="title">AI 识别（可选）</view>
+    <view class="text-weak">拍照建议仅供参考，需人工确认后才计入。</view>
+  </view>
+
+  <button class="btn-primary save-btn" bindtap="onSave">保存这一餐</button>
+</view>

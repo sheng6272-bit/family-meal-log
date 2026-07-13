@@ -1,0 +1,9 @@
+{
+  "name": "login",
+  "version": "0.1.0",
+  "description": "Resolve WeChat openid for the caller.",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

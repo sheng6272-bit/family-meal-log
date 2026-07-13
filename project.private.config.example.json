@@ -1,0 +1,9 @@
+{
+  "//": "Copy this file to project.private.config.json (git-ignored) and set your real WeChat appid. Do NOT commit the real one.",
+  "description": "Private per-developer WeChat DevTools config. NOT committed.",
+  "projectname": "family-meal-log",
+  "setting": {
+    "compileHotReLoad": true
+  },
+  "appid": "wx-your-real-appid-here"
+}

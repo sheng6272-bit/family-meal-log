@@ -1,0 +1,9 @@
+{
+  "name": "mealApi",
+  "version": "0.1.0",
+  "description": "Meal CRUD API (placeholder). Recomputes nutrition server-side using the shared layer.",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "pages": [
+    "pages/home/home",
+    "pages/add-meal/add-meal"
+  ],
+  "window": {
+    "navigationBarTitleText": "家庭饮食记录",
+    "navigationBarBackgroundColor": "#2B5C8F",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#F5F6F8",
+    "enablePullDownRefresh": false
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}

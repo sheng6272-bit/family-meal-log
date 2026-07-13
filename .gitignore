@@ -1,0 +1,36 @@
+# ---- Dependencies ----
+node_modules/
+**/node_modules/
+
+# ---- Build output ----
+dist/
+shared/dist/
+miniprogram/**/*.js
+miniprogram/**/*.js.map
+!miniprogram/**/*.config.js
+cloudfunctions/**/*.js
+cloudfunctions/**/*.js.map
+*.tsbuildinfo
+
+# ---- Secrets & local environment ----
+# Never commit real credentials, environment IDs or API keys.
+.env
+.env.*
+!.env.example
+config/*.local.*
+project.private.config.json
+
+# ---- WeChat DevTools ----
+project.private.config.json
+.wechatide/
+
+# ---- Logs & OS files ----
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# ---- Editor ----
+.idea/
+.vscode/*
+!.vscode/extensions.json

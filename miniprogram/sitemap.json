@@ -1,0 +1,9 @@
+{
+  "desc": "Sitemap configuration. See WeChat docs for indexing rules.",
+  "rules": [
+    {
+      "action": "allow",
+      "page": "*"
+    }
+  ]
+}

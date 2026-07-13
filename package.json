@@ -1,0 +1,19 @@
+{
+  "name": "family-meal-log",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Family Meal Log MVP - a family-oriented food-intake logging WeChat Mini Program built on Tencent CloudBase.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build:shared": "tsc -p shared/tsconfig.json && node -e \"require('fs').writeFileSync('shared/dist/package.json', JSON.stringify({type:'commonjs'}))\"",
+    "test": "npm run build:shared && node scripts/validate.mjs",
+    "validate": "npm run typecheck && npm run test",
+    "clean": "node -e \"require('fs').rmSync('shared/dist',{recursive:true,force:true})\""
+  },
+  "devDependencies": {
+    "miniprogram-api-typings": "^3.12.0",
+    "typescript": "^5.4.0"
+  }
+}
