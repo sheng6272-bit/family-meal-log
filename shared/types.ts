@@ -52,6 +52,23 @@ export interface FamilyProfile extends AuditFields {
   birthDate?: string; // YYYY-MM-DD
   heightCm?: number;
   weightKg?: number;
+  // NOTE: default-profile state is NOT stored here. The single source of truth
+  // is `users.defaultFamilyProfileId`; `isDefault` is computed in the client
+  // DTO only (see services/profile-service.ts#toClientProfile).
+}
+
+/**
+ * Request-level idempotency record. Scoped by the trusted owner identity so a
+ * repeated write (same `requestId`) returns the original result instead of
+ * creating a duplicate. `name`/`relation` are never used as an idempotency key.
+ */
+export interface IdempotencyKey {
+  _id?: string;
+  ownerOpenid: string; // server-derived; never trusted from the client
+  operation: string; // e.g. "create"
+  requestId: string; // client-generated, high-entropy
+  resultId: string; // id of the document the operation produced
+  createdAt: number; // epoch ms
 }
 
 /** 3. A food definition with nutrition density. */

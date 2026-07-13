@@ -20,6 +20,12 @@ export interface ClientProfile {
   _id: string;
   name: string;
   relation: FamilyRelation;
+  /**
+   * Computed, NOT persisted. True when this profile equals the user's
+   * `defaultFamilyProfileId` (the single source of truth). Never read from a
+   * stored `family_profiles.isDefault` field — that column does not exist.
+   */
+  isDefault: boolean;
 }
 
 /** Raw client input; intentionally loose so we can reject unknown/ownership fields. */
@@ -65,9 +71,22 @@ export function normalizeProfileInput(input: ProfileInput): {
   return { name: rawName, relation: relation as FamilyRelation };
 }
 
-/** Map a stored profile to a client-safe shape (drops ownerOpenid). */
-export function toClientProfile(p: FamilyProfile): ClientProfile {
-  return { _id: p._id as string, name: p.name, relation: p.relation };
+/**
+ * Map a stored profile to a client-safe shape (drops ownerOpenid). `isDefault`
+ * is COMPUTED against the user's single-source-of-truth default id; it is never
+ * read from the profile document.
+ */
+export function toClientProfile(
+  p: FamilyProfile,
+  defaultProfileId?: string | null,
+): ClientProfile {
+  const id = p._id as string;
+  return {
+    _id: id,
+    name: p.name,
+    relation: p.relation,
+    isDefault: !!defaultProfileId && id === defaultProfileId,
+  };
 }
 
 /** List the caller's profiles, ordered by createdAt ascending (deterministic). */
@@ -95,26 +114,48 @@ export async function getProfile(
   return profile;
 }
 
+const CREATE_OP = 'create';
+
 /**
  * Create a profile for the caller.
  *  - ownership (ownerOpenid) is set server-side from the trusted openid.
  *  - client ownership/timestamp fields are ignored via normalizeProfileInput.
- *  - defense-in-depth: a repeated submit with an identical name for the same
- *    owner returns the existing profile instead of creating a duplicate.
  *  - the caller's FIRST profile is automatically set as their default.
+ *
+ * Duplicate handling: names are NOT unique. Two profiles with the same name are
+ * a legitimate business case (e.g. two children called "宝宝"). Safe retries are
+ * handled by REQUEST-LEVEL idempotency: when the client supplies a stable
+ * high-entropy `requestId`, a repeated create scoped by
+ * (ownerOpenid + operation + requestId) returns the originally created profile.
+ * A different `requestId` always creates a new profile, even with identical
+ * name/relation. When no `requestId` is supplied, every call creates a new
+ * profile (the client UI in-flight guard is the only protection — see the
+ * residual-risk note in SECURITY.md).
  */
 export async function createProfile(
   repo: Repository,
   openid: string,
   input: ProfileInput,
+  requestId?: string,
 ): Promise<FamilyProfile> {
   if (!openid) throw new ServiceError('invalid_input', 'openid is required');
   const { name, relation } = normalizeProfileInput(input);
 
-  const existing = await repo.listProfiles(openid);
-  const duplicate = existing.find((p) => p.name === name);
-  if (duplicate) return duplicate;
+  // Request-level idempotency (scoped by the trusted owner identity).
+  const key =
+    typeof requestId === 'string' && requestId.trim().length > 0
+      ? requestId.trim()
+      : undefined;
+  if (key) {
+    const seen = await repo.findIdempotencyKey(openid, CREATE_OP, key);
+    if (seen) {
+      const prior = await repo.getProfile(seen.resultId);
+      // Only return it if it still exists AND belongs to this caller.
+      if (prior && prior.ownerOpenid === openid) return prior;
+    }
+  }
 
+  const existing = await repo.listProfiles(openid);
   const now = Date.now();
   const profile: FamilyProfile = {
     ownerOpenid: openid, // server-derived; any client value is ignored
@@ -125,9 +166,19 @@ export async function createProfile(
   };
   const created = await repo.createProfile(profile);
 
-  // First profile for this owner → auto default.
+  // First profile for this owner → auto default (single source of truth on user).
   if (existing.length === 0) {
     await repo.updateUserDefault(openid, created._id as string);
+  }
+
+  if (key) {
+    await repo.saveIdempotencyKey({
+      ownerOpenid: openid,
+      operation: CREATE_OP,
+      requestId: key,
+      resultId: created._id as string,
+      createdAt: now,
+    });
   }
   return created;
 }

@@ -39,6 +39,12 @@ function toErrorResult(err) {
   return { ok: false, error: 'internal_error' };
 }
 
+/** Read the caller's single-source-of-truth default profile id (or null). */
+async function currentDefaultId(repo, openid) {
+  const user = await repo.findUserByOpenid(openid);
+  return (user && user.defaultFamilyProfileId) || null;
+}
+
 exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext();
   if (!OPENID) return { ok: false, error: 'no_openid_context' };
@@ -50,15 +56,23 @@ exports.main = async (event) => {
     switch (action) {
       case 'list': {
         const profiles = await listProfiles(repo, OPENID);
-        return { ok: true, profiles: profiles.map(toClientProfile) };
+        const defaultId = await currentDefaultId(repo, OPENID);
+        return { ok: true, profiles: profiles.map((p) => toClientProfile(p, defaultId)) };
       }
       case 'get': {
         const profile = await getProfile(repo, OPENID, event.profileId);
-        return { ok: true, profile: toClientProfile(profile) };
+        const defaultId = await currentDefaultId(repo, OPENID);
+        return { ok: true, profile: toClientProfile(profile, defaultId) };
       }
       case 'create': {
-        const created = await createProfile(repo, OPENID, event.profile || {});
-        return { ok: true, profile: toClientProfile(created) };
+        const created = await createProfile(
+          repo,
+          OPENID,
+          event.profile || {},
+          event.requestId,
+        );
+        const defaultId = await currentDefaultId(repo, OPENID);
+        return { ok: true, profile: toClientProfile(created, defaultId) };
       }
       case 'update': {
         const updated = await updateProfile(
@@ -67,7 +81,8 @@ exports.main = async (event) => {
           event.profileId,
           event.patch || {},
         );
-        return { ok: true, profile: toClientProfile(updated) };
+        const defaultId = await currentDefaultId(repo, OPENID);
+        return { ok: true, profile: toClientProfile(updated, defaultId) };
       }
       case 'setDefault': {
         const defaultId = await setDefaultProfile(repo, OPENID, event.profileId);

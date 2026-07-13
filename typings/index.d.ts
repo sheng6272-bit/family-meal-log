@@ -16,6 +16,11 @@ interface ClientFamilyProfile {
   _id: string;
   name: string;
   relation: FamilyRelation;
+  /**
+   * Computed by the server DTO as (profile id === users.defaultFamilyProfileId).
+   * Not a persisted field on family_profiles.
+   */
+  isDefault: boolean;
 }
 
 interface IAppGlobalData {

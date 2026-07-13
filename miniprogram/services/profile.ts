@@ -16,6 +16,18 @@ export interface ProfileInput {
   relation: FamilyRelation;
 }
 
+/**
+ * Generate a high-entropy client request id used for server-side create
+ * idempotency (ownerOpenid + operation + requestId). This lets a retried create
+ * safely return the original profile instead of creating a duplicate, WITHOUT
+ * using name as a uniqueness key.
+ */
+export function newRequestId(): string {
+  const rand = Math.random().toString(36).slice(2);
+  const rand2 = Math.random().toString(36).slice(2);
+  return `req_${Date.now().toString(36)}_${rand}${rand2}`;
+}
+
 interface ApiResult {
   ok: boolean;
   profiles?: ClientProfile[];
@@ -36,8 +48,14 @@ export async function listProfiles(): Promise<ClientProfile[]> {
   return res.profiles || [];
 }
 
-export async function createProfile(input: ProfileInput): Promise<ClientProfile> {
-  const res = await req<ApiResult>('create', { profile: input });
+export async function createProfile(
+  input: ProfileInput,
+  requestId?: string,
+): Promise<ClientProfile> {
+  const res = await req<ApiResult>('create', {
+    profile: input,
+    requestId: requestId || newRequestId(),
+  });
   if (!res.ok) throw new Error(toError(res, 'create_failed'));
   if (!res.profile) throw new Error('create_failed');
   return res.profile;

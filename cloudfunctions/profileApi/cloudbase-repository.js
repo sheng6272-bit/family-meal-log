@@ -17,6 +17,7 @@ const db = cloud.database();
 function createRepository() {
   const usersCol = db.collection('users');
   const profilesCol = db.collection('family_profiles');
+  const idempotencyCol = db.collection('idempotency_keys');
 
   async function findUserByOpenid(openid) {
     const res = await usersCol.where({ openid }).limit(1).get();
@@ -71,6 +72,26 @@ function createRepository() {
     return res.data;
   }
 
+  async function findIdempotencyKey(ownerOpenid, operation, requestId) {
+    const res = await idempotencyCol
+      .where({ ownerOpenid, operation, requestId })
+      .limit(1)
+      .get();
+    return res.data && res.data[0] ? res.data[0] : null;
+  }
+
+  async function saveIdempotencyKey(record) {
+    // Best-effort: a unique composite index on
+    // (ownerOpenid, operation, requestId) makes this race-safe. See SECURITY.md.
+    const existing = await findIdempotencyKey(
+      record.ownerOpenid,
+      record.operation,
+      record.requestId,
+    );
+    if (existing) return;
+    await idempotencyCol.add({ data: record });
+  }
+
   return {
     findUserByOpenid,
     saveUser,
@@ -79,6 +100,8 @@ function createRepository() {
     getProfile,
     createProfile,
     updateProfile,
+    findIdempotencyKey,
+    saveIdempotencyKey,
   };
 }
 

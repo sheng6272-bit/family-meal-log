@@ -5,12 +5,13 @@
  * network access.
  */
 
-import type { User, FamilyProfile } from './types';
+import type { User, FamilyProfile, IdempotencyKey } from './types';
 import type { Repository } from './repository';
 
 export class InMemoryRepository implements Repository {
   private users: User[] = [];
   private profiles: FamilyProfile[] = [];
+  private idempotencyKeys: IdempotencyKey[] = [];
 
   async findUserByOpenid(openid: string): Promise<User | null> {
     return this.users.find((u) => u.openid === openid) ?? null;
@@ -57,5 +58,34 @@ export class InMemoryRepository implements Repository {
     const merged: FamilyProfile = { ...this.profiles[idx], ...rest };
     this.profiles[idx] = merged;
     return merged;
+  }
+
+  async findIdempotencyKey(
+    ownerOpenid: string,
+    operation: string,
+    requestId: string,
+  ): Promise<IdempotencyKey | null> {
+    return (
+      this.idempotencyKeys.find(
+        (k) =>
+          k.ownerOpenid === ownerOpenid &&
+          k.operation === operation &&
+          k.requestId === requestId,
+      ) ?? null
+    );
+  }
+
+  async saveIdempotencyKey(record: IdempotencyKey): Promise<void> {
+    // Mirror a unique (ownerOpenid, operation, requestId) index: ignore repeats.
+    const exists = await this.findIdempotencyKey(
+      record.ownerOpenid,
+      record.operation,
+      record.requestId,
+    );
+    if (exists) return;
+    this.idempotencyKeys.push({
+      ...record,
+      _id: record._id ?? `idem_${this.idempotencyKeys.length + 1}`,
+    });
   }
 }

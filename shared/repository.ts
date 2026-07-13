@@ -10,7 +10,7 @@
  * (`repository-memory.ts`) keeps everything in RAM.
  */
 
-import type { User, FamilyProfile } from './types';
+import type { User, FamilyProfile, IdempotencyKey } from './types';
 
 /** Machine-readable error codes the cloud functions map to client responses. */
 export type ServiceErrorCode =
@@ -63,4 +63,23 @@ export interface Repository {
 
   /** Apply a patch to an existing profile (implementation strips `_id`). */
   updateProfile(id: string, patch: Partial<FamilyProfile>): Promise<FamilyProfile>;
+
+  /**
+   * Look up a previously stored idempotency record scoped by the trusted owner
+   * identity + operation + client-supplied requestId. Returns null when the
+   * request has not been seen before. Used to make write operations safely
+   * retryable without name-based deduplication.
+   */
+  findIdempotencyKey(
+    ownerOpenid: string,
+    operation: string,
+    requestId: string,
+  ): Promise<IdempotencyKey | null>;
+
+  /**
+   * Persist the mapping from (ownerOpenid, operation, requestId) to the id of
+   * the record the operation produced. Implementations SHOULD back this with a
+   * unique composite index to make the claim race-safe (see SECURITY.md).
+   */
+  saveIdempotencyKey(record: IdempotencyKey): Promise<void>;
 }

@@ -5,7 +5,7 @@
  * guarded so a duplicate tap cannot create two profiles.
  */
 import type { ProfileInput } from '../../services/profile';
-import { createProfile, updateProfile } from '../../services/profile';
+import { createProfile, updateProfile, newRequestId } from '../../services/profile';
 import { loadSession, selectActiveProfile } from '../../services/session';
 import { RELATION_OPTIONS } from '../../config/labels';
 
@@ -17,6 +17,12 @@ interface EditData {
   relationOptions: { value: FamilyRelation; label: string }[];
   submitting: boolean;
   cloudReady: boolean;
+  /**
+   * Stable idempotency id for THIS create form instance. Reused across retries
+   * of the same form so a lost response / re-tap returns the original profile;
+   * a new form opening gets a new id and is allowed to create another profile.
+   */
+  createRequestId: string;
 }
 
 Page<EditData, WechatMiniprogram.Page.CustomOption>({
@@ -28,6 +34,7 @@ Page<EditData, WechatMiniprogram.Page.CustomOption>({
     relationOptions: RELATION_OPTIONS,
     submitting: false,
     cloudReady: false,
+    createRequestId: '',
   },
 
   onLoad(options: Record<string, string>) {
@@ -37,6 +44,7 @@ Page<EditData, WechatMiniprogram.Page.CustomOption>({
       cloudReady: app.globalData.cloudReady,
       mode,
       profileId: options.id,
+      createRequestId: newRequestId(),
     });
     if (mode === 'edit' && options.id) {
       const existing = app.globalData.profiles.find((p) => p._id === options.id);
@@ -73,7 +81,7 @@ Page<EditData, WechatMiniprogram.Page.CustomOption>({
       if (this.data.mode === 'edit' && this.data.profileId) {
         await updateProfile(this.data.profileId, input);
       } else {
-        const created = await createProfile(input);
+        const created = await createProfile(input, this.data.createRequestId);
         // New profile becomes the active one for this session.
         selectActiveProfile(app, created._id);
       }
