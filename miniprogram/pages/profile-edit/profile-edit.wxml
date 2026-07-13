@@ -1,0 +1,31 @@
+<view class="container">
+  <view class="card">
+    <view class="form-row">
+      <text class="label">姓名</text>
+      <input
+        class="input"
+        value="{{name}}"
+        placeholder="如：爸爸"
+        maxlength="30"
+        bindinput="onNameInput"
+      />
+    </view>
+    <view class="form-row">
+      <text class="label">关系</text>
+      <picker
+        mode="selector"
+        range="{{relationOptions}}"
+        range-key="label"
+        value="{{relationIndex}}"
+        bindchange="onRelationChange"
+      >
+        <view class="picker">{{relationOptions[relationIndex].label}}</view>
+      </picker>
+    </view>
+  </view>
+
+  <button class="btn-primary add-btn" disabled="{{submitting}}" bindtap="onSubmit">
+    {{mode === 'edit' ? '保存修改' : '创建成员'}}
+  </button>
+  <button class="btn-ghost manage-btn" bindtap="onCancel">取消</button>
+</view>

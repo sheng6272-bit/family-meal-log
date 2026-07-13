@@ -1,0 +1,29 @@
+.form-row {
+  display: flex;
+  align-items: center;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid #eee;
+}
+.form-row:last-child {
+  border-bottom: none;
+}
+.label {
+  width: 120rpx;
+  color: #333;
+  font-size: 30rpx;
+}
+.input {
+  flex: 1;
+  font-size: 30rpx;
+}
+.picker {
+  flex: 1;
+  font-size: 30rpx;
+  color: #333;
+}
+.add-btn {
+  margin-top: 24rpx;
+}
+.manage-btn {
+  margin-top: 16rpx;
+}

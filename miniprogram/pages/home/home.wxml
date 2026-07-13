@@ -1,26 +1,43 @@
 <view class="container">
-  <view class="card">
-    <view class="title">{{activeProfileName}}</view>
-    <view class="text-weak">{{today}}</view>
-    <view wx:if="{{!cloudReady}}" class="text-weak">离线模式：手动记录可用</view>
+  <!-- Offline / not configured -->
+  <view class="card" wx:if="{{!cloudReady}}">
+    <view class="title">离线模式</view>
+    <view class="text-weak">未配置云环境，身份与成员功能暂不可用。手动记录入口仍保留。</view>
+    <button class="btn-primary add-btn" bindtap="onAddMeal">添加一餐</button>
   </view>
 
-  <view class="card">
-    <view class="title">今日合计</view>
-    <view class="totals">
-      <view class="metric"><text class="num">{{dailyTotals.calories}}</text><text class="text-weak">千卡</text></view>
-      <view class="metric"><text class="num">{{dailyTotals.protein}}</text><text class="text-weak">蛋白质(g)</text></view>
-      <view class="metric"><text class="num">{{dailyTotals.carb}}</text><text class="text-weak">碳水(g)</text></view>
-      <view class="metric"><text class="num">{{dailyTotals.fat}}</text><text class="text-weak">脂肪(g)</text></view>
+  <!-- Onboarding: no profiles yet -->
+  <view class="card" wx:elif="{{needsOnboarding}}" bindtap="onCreateFirst">
+    <view class="title">{{activeProfileLabel}}</view>
+    <view class="text-weak">{{today}} · 点击创建第一个家庭成员</view>
+    <button class="btn-primary add-btn" bindtap="onCreateFirst">创建第一个家庭成员</button>
+  </view>
+
+  <!-- Normal: has active profile -->
+  <block wx:else>
+    <view class="card card-tap" bindtap="onManageProfiles">
+      <view class="title">{{activeProfileLabel}}</view>
+      <view class="text-weak">{{today}} · 点击管理家庭成员</view>
     </view>
-  </view>
 
-  <view class="card">
-    <view class="title">餐次</view>
-    <view class="meal-slots">
-      <view wx:for="{{mealTypes}}" wx:key="key" class="slot text-weak">{{item.label}}</view>
+    <view class="card">
+      <view class="title">今日合计</view>
+      <view class="totals">
+        <view class="metric"><text class="num">{{dailyTotals.calories}}</text><text class="text-weak">千卡</text></view>
+        <view class="metric"><text class="num">{{dailyTotals.protein}}</text><text class="text-weak">蛋白质(g)</text></view>
+        <view class="metric"><text class="num">{{dailyTotals.carb}}</text><text class="text-weak">碳水(g)</text></view>
+        <view class="metric"><text class="num">{{dailyTotals.fat}}</text><text class="text-weak">脂肪(g)</text></view>
+      </view>
     </view>
-  </view>
 
-  <button class="btn-primary add-btn" bindtap="onAddMeal">添加一餐</button>
+    <view class="card">
+      <view class="title">餐次</view>
+      <view class="meal-slots">
+        <view wx:for="{{mealTypes}}" wx:key="key" class="slot text-weak">{{item.label}}</view>
+      </view>
+    </view>
+
+    <button class="btn-primary add-btn" bindtap="onAddMeal">添加一餐</button>
+    <button class="btn-ghost manage-btn" bindtap="onManageProfiles">管理家庭成员</button>
+  </block>
 </view>

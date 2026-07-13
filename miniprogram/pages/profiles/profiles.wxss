@@ -1,0 +1,42 @@
+.profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+.profile-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24rpx;
+  background: #ffffff;
+  border-radius: 16rpx;
+}
+.profile-name {
+  font-size: 32rpx;
+  font-weight: 600;
+}
+.profile-actions {
+  display: flex;
+  gap: 12rpx;
+}
+.badge {
+  display: inline-block;
+  margin-left: 12rpx;
+  padding: 2rpx 12rpx;
+  font-size: 20rpx;
+  border-radius: 20rpx;
+  color: #ffffff;
+  vertical-align: middle;
+}
+.badge-default {
+  background: #2b5c8f;
+}
+.badge-active {
+  background: #e08a3c;
+}
+.add-btn {
+  margin-top: 24rpx;
+}
+.empty {
+  margin-top: 16rpx;
+}
