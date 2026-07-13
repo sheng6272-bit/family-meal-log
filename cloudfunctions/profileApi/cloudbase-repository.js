@@ -12,9 +12,9 @@
  * cloud.DYNAMIC_CURRENT_ENV.
  */
 const cloud = require('wx-server-sdk');
-const db = cloud.database();
 
 function createRepository() {
+  const db = cloud.database();
   const usersCol = db.collection('users');
   const profilesCol = db.collection('family_profiles');
   const idempotencyCol = db.collection('idempotency_keys');

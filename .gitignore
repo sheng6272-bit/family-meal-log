@@ -40,3 +40,5 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+miniprogram/config/env.local.ts

@@ -5,6 +5,8 @@
  * session (server-derived identity + profile list + active-profile
  * resolution). No openid is ever stored or trusted from the client.
  */
+import { applyEnvOverrides } from './config/env';
+import { LOCAL_ENV_OVERRIDES } from './config/env.local';
 import { initCloud, isCloudReady } from './services/cloud';
 import { loadSession } from './services/session';
 
@@ -19,8 +21,12 @@ App<IAppOption>({
   },
 
   onLaunch() {
+    // Load the git-ignored local CloudBase environment ID before cloud init.
+    applyEnvOverrides(LOCAL_ENV_OVERRIDES);
+
     const ready = initCloud();
     this.globalData.cloudReady = ready && isCloudReady();
+
     if (this.globalData.cloudReady) {
       // Bootstrap identity + profiles. Pages also call loadSession on show,
       // so this is best-effort warm-up; failures are handled per-page.
