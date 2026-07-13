@@ -34,9 +34,9 @@ SECTIONS = [
         ("bullet", "服务端可信身份：openid 仅由 cloud.getWXContext().OPENID 在服务端取得，客户端永不发送、接收或存储 openid；所有对外 DTO 不含 openid / ownerOpenid。"),
         ("bullet", "共享运行时确定性打包：shared/*.ts 编译为 CommonJS 后复制进各云函数 lib/shared/，无符号链接、Windows 兼容、生成物不入库。"),
         ("bullet", "客户端身份/档案 UI：首次引导（onboarding）、档案列表/创建/编辑/选择/设默认，首页展示当前活动档案。"),
-        ("bullet", "自动化验收：npm run validate 共 91 项检查全部通过（M0 基线 67 + M1/M1.1 共 24）。其中「跨用户隔离」「共享运行时打包」「默认档案单一事实来源」「请求级幂等」四组关键验收均通过。"),
-        ("p", "M1.1 加固（合入 main 前的窄范围修正，详见第 16 节）：(1) 移除基于姓名的档案去重，改为客户端 requestId 的请求级幂等 + UI 防抖；(2) 默认档案单一事实来源——仅以 users.defaultFamilyProfileId 持久化，family_profiles 不存 isDefault，对外 isDefault 由 DTO 计算。"),
-        ("p", "结论：依据验收门槛（owner-isolation、shared-runtime packaging、default-profile single-source-of-truth、request-level idempotency 必须全部通过），M1 + M1.1 可判定为【完成】，分支具备合入 main 的条件（真机/DevTools 手动冒烟由产品负责人执行，见第 12、17 节）。"),
+        ("bullet", "自动化验收：npm run validate 共 91 项检查全部通过（M0 基线 67 + M1/M1.1 共 24）。其中「跨用户隔离」「共享运行时打包」「默认档案单一事实来源」「best-effort 请求幂等（尽力式请求幂等）」四组关键验收均通过。"),
+        ("p", "M1.1 加固（合入 main 前的窄范围修正，详见第 16 节）：(1) 移除基于姓名的档案去重，改为客户端 requestId 的 best-effort 请求幂等（尽力式请求幂等：客户端 in-flight 防护 + 服务端请求重放处理）+ UI 防抖；(2) 默认档案单一事实来源——仅以 users.defaultFamilyProfileId 持久化，family_profiles 不存 isDefault，对外 isDefault 由 DTO 计算。"),
+        ("p", "结论：依据自动化验收门槛（owner-isolation、shared-runtime packaging、default-profile single-source-of-truth、best-effort request idempotency 必须全部通过），M1 + M1.1 关键验收达成。**代码与文档已就绪，可进入产品负责人的 DevTools / 真机手动验收（见第 12、17、18 节）**；当前自动化环境无法代跑手动/真机测试，故不宣称产品已验收通过。"),
         ("p", "附带一项仓库卫生修正：.gitignore 现忽略 .workbuddy/（项目记忆目录，不应提交）。"),
     ]),
     ("2. 变更区域仓库目录树", [
@@ -89,7 +89,7 @@ SECTIONS = [
 """),
     ]),
     ("3. 创建与修改文件完整清单", [
-        ("p", "M1 共涉及 44 个文件（新增 29、修改 15）。按类别列示如下（★ 为 M1 新增）："),
+        ("p", "M1 最初影响 **47 个文件**（31 新增、16 修改）。M1.1 在此基础上追加修改了 **18 个文件**（全部为 M1 既有文件，即在相同代码/文档之上叠加的加固层）。本次最终 closeout（本报告交付）又修改了一组文档/报告文件（见 §3.6）。下方按类别列示实质性文件；逐文件完整清单以 `git diff --stat` 为准。"),
         ("h2", "3.1 共享运行时（新增）"),
         ("table", ["文件", "状态", "用途"], [
             ["shared/repository.ts", "新增", "Repository 接口、ServiceError、错误码"],
@@ -138,6 +138,40 @@ SECTIONS = [
             ["docs/DEVELOPMENT_PLAN.md", "修改", "M1 标记 ✅"],
             ["docs/PRODUCT_REQUIREMENTS.md", "修改", "补充排除项"],
         ]),
+        ("h2", "3.5 M1.1 修改文件（18 个，均叠加于 M1 既有文件）"),
+        ("table", ["文件", "状态", "M1.1 变更"], [
+            ["shared/types.ts", "修改", "新增 IdempotencyKey 接口；注明 FamilyProfile 不存 isDefault"],
+            ["shared/repository.ts", "修改", "Repository 增加 findIdempotencyKey / saveIdempotencyKey"],
+            ["shared/repository-memory.ts", "修改", "内存实现幂等键存取"],
+            ["shared/services/profile-service.ts", "修改", "移除姓名去重；createProfile 支持 requestId 幂等；DTO 计算 isDefault"],
+            ["cloudfunctions/profileApi/cloudbase-repository.js", "修改", "idempotency_keys 集合的查/写实现"],
+            ["cloudfunctions/profileApi/index.js", "修改", "currentDefaultId 助手；透传 requestId"],
+            ["cloudfunctions/login/cloudbase-repository.js", "修改", "接口对齐补齐幂等键方法"],
+            ["typings/index.d.ts", "修改", "ClientFamilyProfile 增 isDefault（服务端计算）"],
+            ["miniprogram/services/profile.ts", "修改", "newRequestId()；createProfile 传 requestId"],
+            ["miniprogram/pages/profile-edit/profile-edit.ts", "修改", "onLoad 生成 createRequestId；onSubmit 透传"],
+            ["scripts/validate.mjs", "修改", "14a/14b/14c + 15a–15f 替换姓名去重测试；打包/卫生重编号"],
+            ["docs/DATA_MODEL.md", "修改", "idempotency_keys、默认 SSoT、移除姓名去重"],
+            ["docs/ARCHITECTURE.md", "修改", "§5b 幂等与默认 SSoT、§12 M1.1 决策、集合/索引"],
+            ["docs/USER_FLOWS.md", "修改", "创建流程 requestId、允许重名、默认计算与回退"],
+            ["docs/SECURITY.md", "修改", "集合/索引、创建幂等与默认 SSoT 说明"],
+            ["build_m1_report.py", "修改", "并入 M1.1 修正、测试状态与 git 复核"],
+            ["docs/M1-FINAL-REPORT.md", "修改", "重新生成（Markdown 草稿）"],
+            ["M1-FINAL-REPORT.docx", "修改", "重新生成（Word，蓝色主题）"],
+        ]),
+        ("h2", "3.6 最终 closeout 修改文件（本报告交付，M1 final closeout）"),
+        ("table", ["文件", "状态", "closeout 变更"], [
+            ["docs/DATA_MODEL.md", "修改", "幂等表述改为 best-effort（尽力式请求幂等）；索引改 composite 非唯一"],
+            ["docs/ARCHITECTURE.md", "修改", "§5b 增加 best-effort 术语；索引标注 currently non-unique"],
+            ["docs/SECURITY.md", "修改", "§3 明确 best-effort 请求幂等（非原子）"],
+            ["docs/USER_FLOWS.md", "修改", "创建流程增加 best-effort 术语"],
+            ["docs/DEVELOPMENT_PLAN.md", "修改", "M2 范围对齐「食物目录与份量单位」+ 排除项；M1 验收措辞"],
+            ["README.md", "修改", "里程碑表 M2/M3 措辞 + M2 排除说明"],
+            ["docs/MANUAL_TEST_RESULTS.md", "新增", "手动测试结果表（14 项全 Pending）"],
+            ["build_m1_report.py", "修改", "报告源：幂等表述/路线图/Git 复核/文件计数"],
+            ["docs/M1-FINAL-REPORT.md", "重新生成", "本报告 Markdown 草稿"],
+            ["M1-FINAL-REPORT.docx", "重新生成", "本报告 Word（蓝色主题）"],
+        ]),
     ]),
     ("4. 身份与数据模型", [
         ("h2", "4.1 users 集合"),
@@ -168,13 +202,13 @@ SECTIONS = [
             ["resultId", "string", "首个请求所创建实体的 _id"],
             ["createdAt", "number", "服务端时间戳"],
         ]),
-        ("p", "以三元组 (ownerOpenid, operation, requestId) 唯一标识一次逻辑意图：相同 requestId 的重复请求返回原档案（resultId），不新建；不同 requestId 视为新意图（即便姓名/关系相同）。requestId 以可信 ownerOpenid 作用域隔离，不同用户复用同一字符串不冲突。"),
+        ("p", "以三元组 (ownerOpenid, operation, requestId) 标识一次逻辑意图：相同 requestId 的重复请求通常返回原档案（resultId），不新建；不同 requestId 视为新意图（即便姓名/关系相同）。requestId 以可信 ownerOpenid 作用域隔离，不同用户复用同一字符串不冲突。这是 **best-effort 请求幂等（尽力式请求幂等）**——客户端 in-flight 防护 + 服务端请求重放处理——**不是**严格/原子保证：read→create→write-key 非原子，存在残留并发竞态（详见第 16 节与 docs）。"),
         ("p", "本地自然日约定：用餐记录（M2）按 YYYY-MM-DD 00:00–23:59（所有者所在时区）分区存储，该约定已在 DATA_MODEL 登记，M1 仅记录规则不落地数据。"),
         ("h2", "4.3 索引"),
         ("table", ["集合", "字段", "类型", "用途"], [
             ["users", "openid", "唯一", "幂等登录、按身份查用户"],
             ["family_profiles", "ownerOpenid + createdAt", "普通", "按所有者列出/隔离档案，确定性排序"],
-            ["idempotency_keys", "ownerOpenid + operation + requestId", "复合（M3 建议改唯一）", "创建操作的请求级幂等"],
+            ["idempotency_keys", "ownerOpenid + operation + requestId", "复合（当前非唯一；M3 升级为唯一索引作原子闸）", "创建操作的 best-effort 请求幂等"],
         ]),
     ]),
     ("5. 云函数契约", [
@@ -186,11 +220,11 @@ SECTIONS = [
         ("table", ["动作", "说明", "对外字段（toClientProfile）"], [
             ["list", "按 OPENID 列出本人档案，按 createdAt 升序；isDefault 由 DTO 计算", "id, name, relation, isDefault(计算), createdAt"],
             ["get", "取单条，校验归属；isDefault 由 DTO 计算", "同上"],
-            ["create", "规范化输入；服务端写 ownerOpenid；首个档案自动默认；按 requestId 请求级幂等；不按姓名去重", "返回新建（或幂等命中的原）档案"],
+            ["create", "规范化输入；服务端写 ownerOpenid；首个档案自动默认；按 requestId 的 best-effort 请求幂等（尽力式请求幂等）；不按姓名去重", "返回新建（或幂等命中的原）档案"],
             ["update", "校验归属；仅可改 name/relation", "返回更新后档案"],
             ["setDefault", "校验归属；仅更新 users.defaultFamilyProfileId，不改任何档案文档", "返回目标档案（isDefault 计算为 true）"],
         ]),
-        ("p", "【M1.1】create 携带 event.requestId，服务端以 (ownerOpenid, 'create', requestId) 查 idempotency_keys：命中则返回原档案，未命中则创建并记录键；不再进行基于姓名的去重。isDefault 一律由 DTO 计算（profile.id === user.defaultFamilyProfileId），服务端不持久化该字段。"),
+        ("p", "【M1.1】create 携带 event.requestId，服务端以 (ownerOpenid, 'create', requestId) 查 idempotency_keys：命中则返回原档案，未命中则创建并记录键；不再进行基于姓名的去重。这是 **best-effort 请求幂等**：read→create→write-key 非原子，理论上并发同 requestId 可能各建一条，但 UI in-flight 防护 + 单用户点击并发已将其缓解（残留竞态见第 16 节、docs）。isDefault 一律由 DTO 计算（profile.id === user.defaultFamilyProfileId），服务端不持久化该字段。"),
         ("p", "错误映射：ServiceError（not_found / forbidden / validation / invalid_input）→ { ok:false, error:{ code, message } }。mealApi 同步去除响应中的 openid（M0 遗留修正）。"),
     ]),
     ("6. 共享运行时打包", [
@@ -233,7 +267,7 @@ SECTIONS = [
             ["登录失败", "提示错误，不加载档案"],
             ["列表失败", "显示重试/空态"],
             ["创建/更新失败", "Toast 报错，保留表单内容"],
-            ["重复点击提交", "客户端按钮防重（in-flight 标记）；服务端按 requestId 请求级幂等（不按姓名去重），保证同一意图不重复创建"],
+            ["重复点击提交", "客户端按钮防重（in-flight 标记）；服务端按 requestId 的 best-effort 请求幂等（尽力式请求幂等，非原子保证），正常保证同一意图不重复创建；残留并发竞态由 UI 防抖缓解"],
             ["同名档案（不同意图）", "允许创建（不同 requestId）；姓名非唯一键"],
             ["姓名为空/纯空格", "客户端校验 + 服务端 rejection（validation）"],
             ["关系非法", "选择器限定枚举；服务端拒绝"],
@@ -300,7 +334,7 @@ SECTIONS = [
         ("bullet", "客户端绝不存储 openid；移除旧文档中相关错误表述。"),
     ]),
     ("14. Git 与范围控制", [
-        ("p", "分支：feature/m1-identity-family-profiles，自干净的 M0 基线（cc698c2）切出。以下为 git log --oneline cc698c2..HEAD 的实际记录（与仓库一致，未编造/未 squash）："),
+        ("p", "分支：feature/m1-identity-family-profiles，自干净的 M0 基线（cc698c2）切出。以下为 `git log --oneline cc698c2..HEAD` 在本报告重新生成前（即提交本 closeout 报告之前）的真实记录，全部为真实 hash，未编造、未 squash："),
         ("h2", "14.1 M1 提交（6 个）"),
         ("table", ["#", "Hash", "提交信息"], [
             ["1", "3f323f5", "M1: shared runtime (repository, user/profile services, session) + build packaging"],
@@ -310,32 +344,37 @@ SECTIONS = [
             ["5", "d5b1134", "M1: extend validation with 16 M1 acceptance tests"],
             ["6", "acbf11d", "M1: final report (Markdown draft + Word .docx, blue theme)"],
         ]),
-        ("h2", "14.2 M1.1 加固提交（3 个 + 本报告提交）"),
+        ("h2", "14.2 M1.1 加固提交（4 个，真实 hash）"),
         ("table", ["#", "Hash", "提交信息"], [
             ["7", "a729826", "M1.1: remove name-based dedup (requestId idempotency) + default single source of truth"],
             ["8", "b6aefc6", "M1.1: validation tests for requestId idempotency & default single source of truth"],
             ["9", "1c9243c", "M1.1: docs (data model, architecture, flows, security) reflect idempotency + default SSoT"],
-            ["10", "(本次)", "M1.1: reconcile final report (M1.1 corrections, test status, git log)"],
+            ["10", "f95054d", "M1.1: reconcile final report (M1.1 corrections, test status, git log)"],
         ]),
-        ("p", "说明：第 10 条为本报告自身的提交，在本文件生成时其 hash 尚未产生，故以「(本次)」标注；提交后即为分支 HEAD。合计自 M0 以来 M1 6 个 + M1.1 4 个。"),
+        ("p", "说明：上方共 10 个提交，hash 均真实存在，与仓库 `git log --oneline cc698c2..HEAD`（本报告生成前）完全一致。**本报告（本 closeout 重新生成的版本）所在的提交未列入该日志**——因为报告在生成提交之前已写好，其 hash 彼时尚未产生。即：*The commit containing this regenerated report is not included in the log above because the report was generated before that commit was created.* 合并计数：M1 6 个 + M1.1 4 个 = 10 个（本 closeout 的额外提交另计，不计入上方日志）。"),
         ("p", "范围控制：未包含任何 M2+ 代码（无 food/portion/meal/recipe/photo/AI 实现），未实现档案删除、营养目标或医疗字段，未重构 UI。M1 附带修正：M0 的 cloudfunctions/**/*.js 误忽略导致云函数源码从未入库；M1 将 .gitignore 改为仅忽略 lib/shared/，使 login/mealApi/aiAnalyze 源码得以纳入版本控制。"),
     ]),
-    ("15. M2 建议（不实现）", [
-        ("p", "建议 M2 聚焦「用餐记录与营养」："),
-        ("bullet", "扩展 mealApi：meal 的 create/list/get/update，使用活动档案 ID（activeFamilyProfileId）+ 本地日分区（YYYY-MM-DD）。"),
-        ("bullet", "复用 M0 已有的营养工具（validateMeal / sumNutrition / caloriesFromMacros 已在共享运行时与校验中验证），定义 food item 模型与营养汇总。"),
-        ("bullet", "客户端新增记餐列表与「记餐」表单（首页占位已预留），按活动档案归属与本地日筛选。"),
-        ("bullet", "所有权范围沿用 profileApi 的服务端 OPENID 校验，meal 查询以 ownerOpenid + activeFamilyProfileId 隔离。"),
-        ("bullet", "照片/AI 分析延后：provider-neutral 适配层桩已就位，M2 不接真实 AI。"),
-        ("p", "注意：M2 仍保持单一所有者模型，不引入多人共享；openid 继续仅服务端可见。"),
+    ("15. 里程碑路线图（仅规划，不实现）", [
+        ("p", "经 PM 复核，M2 不再建议「用餐记录与营养（含 mealApi CRUD）」。约定序列如下，M2 仅聚焦食物目录与份量单位："),
+        ("table", ["里程碑", "范围", "明确排除"], [
+            ["M2 — Food Catalog & Portion Units", "小型精选系统食物种子数据集；食物搜索与选择；用户自定义临时食物；通用份量单位 + 食物专属份量单位；份量→克换算；单食物实时营养预览；营养记录的来源与版本元数据", "保存餐食；mealApi 增删改查；每日餐史；食谱；照片上传；AI 识别"],
+            ["M3 — Manual Meal Logging", "多食物组合成一餐；餐型与日期；服务端校验与重算；保存并重新加载餐食", "继承 M2 排除项；不含编辑/删除（见 M4）"],
+            ["M4 — History, Edit & Delete", "每日餐史浏览；编辑与删除餐食", "—"],
+            ["M5 — Saved Foods & Recipes", "收藏食物；简单家庭食谱", "—"],
+            ["M6 — Photo Upload", "餐食照片上传至 CloudBase Storage", "—"],
+            ["M7 — Mock AI Suggestions", "provider-neutral 适配层 + mock 供应商 + 确认/修正 UX", "真实 AI"],
+            ["M8 — Real AI Provider", "同一接口后接入真实供应商；密钥仅存 CloudBase 函数环境变量", "—"],
+        ]),
+        ("p", "M2 详细验收见 docs/DEVELOPMENT_PLAN.md（已标注 M2 仅食物目录与份量单位，不含任何 meal 持久化）。全部里程碑保持单一所有者模型，openid 仅服务端可见。本 closeout 未实现任何 M2+ 代码。"),
     ]),
     ("16. M1.1 加固修正（合入 main 前）", [
         ("p", "在将 M1 合入 main 前执行的窄范围加固，仅含两处设计修正与配套测试/文档，不引入 M2、不实现档案删除/营养目标/医疗字段、不重构 UI、不接真实 AI。"),
-        ("h2", "16.1 修正一：移除基于姓名的档案去重"),
+        ("h2", "16.1 修正一：移除基于姓名的档案去重（best-effort 请求幂等）"),
         ("bullet", "问题：早期 M1 可能以 name（或 name + relation）作为唯一/幂等键，导致同一所有者无法创建重名档案（如两个都叫「宝宝」的孩子）。"),
-        ("bullet", "修正：createProfile 不再按姓名去重；姓名不作唯一键。防止误重复改由两层实现——(a) 客户端提交 in-flight 防抖；(b) 客户端生成 requestId 的请求级幂等，作用域为 (ownerOpenid, operation, requestId)。"),
+        ("bullet", "修正：createProfile 不再按姓名去重；姓名不作唯一键。防止误重复改由两层实现——(a) 客户端提交 in-flight 防抖；(b) 客户端生成 requestId 的 **best-effort 请求幂等（尽力式请求幂等）**：客户端 in-flight 防护 + 服务端请求重放处理，作用域为 (ownerOpenid, operation, requestId)。"),
         ("bullet", "客户端契约：{ action:'create', requestId:'req_<time36>_<random>', profile:{ name, relation } }。相同 requestId 返回原档案；不同 requestId 即便姓名/关系相同也创建新档案。"),
         ("bullet", "落地：新增 idempotency_keys 集合与 IdempotencyKey 类型；Repository 增加 findIdempotencyKey / saveIdempotencyKey；内存实现与 CloudBase 实现均补齐；profileApi.index.js 透传 event.requestId。"),
+        ("bullet", "文档化事实（不宣称严格/原子幂等）：(1) 相同 requestId 通常返回原结果；(2) 不同 requestId 允许重名档案；(3) read→create→write-key 非原子，存在残留并发竞态；(4) UI in-flight 防护降低家庭 MVP 的实际风险；(5) 未来通用原子方案应在实体创建前用唯一约束/原子幂等键申领（唯一复合索引，重复键即视为已处理并返回 resultId）；(6) 该更强实现应在此之前或 M3（餐食创建同样需要幂等）引入。"),
         ("bullet", "残留风险（已记录）：read→create→write-key 非原子，理论上两条并发同 requestId 可能各自创建；已由 UI 防抖 + 单用户点击并发缓解。M3 通用方案：将复合索引升级为唯一索引，以「写键」作为原子闸（重复键报错即视为已处理并返回 resultId）。"),
         ("h2", "16.2 修正二：默认档案单一事实来源"),
         ("bullet", "仅以 users.defaultFamilyProfileId 作为默认状态的唯一持久化来源；family_profiles 不存储 isDefault。"),
@@ -362,7 +401,7 @@ SECTIONS = [
             ["build_m1_report.py / 报告", "修改", "并入 M1.1 修正、测试状态与 git 复核"],
         ]),
         ("h2", "16.4 合并就绪结论"),
-        ("p", "两处设计修正均已完成并通过自动化验收（91/91）。分支 feature/m1-identity-family-profiles 具备合入 main 的条件；唯一待办为产品负责人在 DevTools / 真机环境执行手动冒烟（见第 17 节，含精确步骤）——该项无法在当前自动化环境代为执行，故以「待执行」明确标注，不影响代码层面的合并就绪判定。"),
+        ("p", "两处设计修正均已完成并通过自动化验收（91/91）。分支 feature/m1-identity-family-profiles 的**代码与文档已就绪，可进入产品负责人的 DevTools / 真机手动验收**（见第 17、18 节）。未宣称产品已验收通过——手动/真机冒烟（无法在当前自动化环境代跑）完成前，不应判定为 fully product-accepted。"),
     ]),
     ("17. 测试状态（自动化 / DevTools 手动 / 真机）", [
         ("p", "按要求严格区分三类测试的执行状态，避免将未执行项报告为已通过："),
@@ -384,7 +423,18 @@ SECTIONS = [
         ("bullet", "1) 在真机预览/体验版中复现 17.1 的 3–8。"),
         ("bullet", "2) 断网/未配置云环境时，首页应显示离线横幅且不崩溃。"),
         ("bullet", "3) 清除本地存储后重启，确认活动档案回退（服务端默认 → 首个 → 引导）正确。"),
-        ("p", "以上步骤执行后，请将结果回填至 docs/MANUAL_TEST_CHECKLIST.md 并在本节标注实际状态。"),
+        ("p", "以上步骤执行后，请将结果回填至 docs/MANUAL_TEST_RESULTS.md（手动测试结果表，14 项全 Pending）并在本节标注实际状态。"),
+    ]),
+    ("18. M1 最终 closeout（本交付修正）", [
+        ("p", "本 closeout 是合入 main 前的最后一次窄范围修正，仅处理 PM 复核发现的报告与文档问题，不改变 M1/M1.1 的实现代码（实现已通过 91/91 自动化验收）。"),
+        ("h2", "18.1 本轮修正内容"),
+        ("bullet", "幂等表述：将「请求级幂等」统一改为 best-effort 请求幂等（尽力式请求幂等）/ 客户端 in-flight 防护 + 服务端请求重放处理；明确不宣称严格/原子幂等；在 DATA_MODEL / ARCHITECTURE / SECURITY / USER_FLOWS 与本报告记录残留并发竞态与 M3 通用原子方案。"),
+        ("bullet", "Git 日志复核：第 14 节改为只列真实 hash 的 10 个提交，移除「(本次)」占位；补注本报告自身提交未计入日志（因其 hash 在生成前尚不存在）。"),
+        ("bullet", "里程碑路线图：第 15 节改为约定序列 M2 食物目录与份量单位 → M3 手动记餐 → M4 历史/编辑/删除 → M5 收藏与食谱 → M6 照片 → M7 mock AI → M8 真实 AI；M2 明确排除 mealApi/餐史/食谱/照片/AI。同步更新 README 与 DEVELOPMENT_PLAN。"),
+        ("bullet", "文件计数一致性：第 3 节改为「M1 最初影响 47 个文件（31 新增/16 修改）；M1.1 追加修改 18 个；本 closeout 修改一组文档/报告文件」，并分 §3.5 / §3.6 区分三类文件。"),
+        ("bullet", "手动测试真实状态：新增 docs/MANUAL_TEST_RESULTS.md（14 项全 Pending）；第 17 节维持 DevTools / 真机为「待执行」。"),
+        ("h2", "18.2 是否可合入 main"),
+        ("p", "**代码与文档已就绪，可进入产品负责人的 DevTools / 真机手动验收。** 两处设计修正（移除姓名去重、默认档案单一事实来源）均已完成并通过自动化验收（91/91），含幂等与默认 SSoT 的关键项。唯一前置为产品负责人按 docs/MANUAL_TEST_RESULTS.md 执行手动/真机冒烟——该项受环境所限无法由自动化代跑，明确标注为 Pending，不构成代码合并阻塞，但在完成前不应判定为 fully product-accepted。本任务**未将分支合入 main**，也未创建 M2 分支。"),
     ]),
 ]
 
@@ -496,7 +546,7 @@ def build_docx(path):
     set_run_font(run, size=12)
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = p.add_run("状态：✅ 完成（91/91 校验通过，含 M1.1 加固）")
+    run = p.add_run("状态：✅ 代码与文档完成（91/91 自动化校验通过；DevTools/真机手动验收待产品负责人）")
     set_run_font(run, size=12, bold=True, color=BLUE_DARK)
     doc.add_page_break()
 
@@ -587,7 +637,7 @@ def _code_block(doc, text):
 def build_md(path):
     out = []
     out.append(f"# {TITLE} — {SUBTITLE}（最终交付报告）\n")
-    out.append(f"> 日期：{REPORT_DATE} ｜ 状态：✅ 完成（91/91 校验通过，含 M1.1 加固）\n")
+    out.append(f"> 日期：{REPORT_DATE} ｜ 状态：✅ 代码与文档完成（91/91 自动化校验通过；DevTools/真机手动验收待产品负责人）\n")
     out.append("\n## 目录\n")
     for idx, (title, _) in enumerate(SECTIONS, start=1):
         out.append(f"{idx}. {title.split('.', 1)[1].strip()}")
