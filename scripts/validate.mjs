@@ -353,38 +353,131 @@ if (!existsSync(distIndex)) {
     check('13. default persists across fresh login', relogin.user.defaultFamilyProfileId === secondId);
   }
 
-  // 14. Repeated submit does not create duplicate profiles.
+  // 14. Name-based dedup is GONE — duplicates are allowed; retries are handled
+  //     by request-level idempotency (ownerOpenid + operation + requestId).
   {
     const repo = new InMemoryRepository();
     await upsertUser(repo, 'duser');
-    const first = await createProfile(repo, 'duser', { name: '小明', relation: 'child' });
-    const second = await createProfile(repo, 'duser', { name: '小明', relation: 'child' });
+    // Same owner, identical name+relation, DIFFERENT requestIds -> two profiles.
+    const a = await createProfile(repo, 'duser', { name: '宝宝', relation: 'child' }, 'req-1');
+    const b = await createProfile(repo, 'duser', { name: '宝宝', relation: 'child' }, 'req-2');
     const list = await listProfiles(repo, 'duser');
-    check('14. duplicate submit returns same profile (no dup)', first._id === second._id && list.length === 1);
+    check(
+      '14a. same name + different requestId -> two distinct profiles',
+      a._id !== b._id && list.length === 2,
+    );
   }
 
-  // 15. Shared runtime is packaged into the affected cloud-function builds.
+  // 14b. Repeating the SAME requestId returns the originally created profile.
+  {
+    const repo = new InMemoryRepository();
+    await upsertUser(repo, 'duser2');
+    const first = await createProfile(repo, 'duser2', { name: '小明', relation: 'child' }, 'same-req');
+    const retry = await createProfile(repo, 'duser2', { name: '小明', relation: 'child' }, 'same-req');
+    const list = await listProfiles(repo, 'duser2');
+    check(
+      '14b. repeated requestId returns same profile (no dup)',
+      first._id === retry._id && list.length === 1,
+    );
+  }
+
+  // 14c. Different owners may reuse the same requestId without collision.
+  {
+    const repo = new InMemoryRepository();
+    await upsertUser(repo, 'ownerX');
+    await upsertUser(repo, 'ownerY');
+    const px = await createProfile(repo, 'ownerX', { name: '同名', relation: 'self' }, 'shared-req');
+    const py = await createProfile(repo, 'ownerY', { name: '同名', relation: 'self' }, 'shared-req');
+    const listX = await listProfiles(repo, 'ownerX');
+    const listY = await listProfiles(repo, 'ownerY');
+    check(
+      '14c. different owners reuse the same requestId without collision',
+      px._id !== py._id && listX.length === 1 && listY.length === 1 &&
+        px.ownerOpenid === 'ownerX' && py.ownerOpenid === 'ownerY',
+    );
+  }
+
+  // 15. Default profile: single source of truth = users.defaultFamilyProfileId.
+  //     isDefault is COMPUTED in the DTO, never persisted on family_profiles.
+  {
+    const repo = new InMemoryRepository();
+    await upsertUser(repo, 'defu');
+    const p1 = await createProfile(repo, 'defu', { name: '爸爸', relation: 'parent' });
+    const p2 = await createProfile(repo, 'defu', { name: '妈妈', relation: 'spouse' });
+
+    // 15a. No isDefault key is ever persisted on a profile document.
+    const stored1 = await repo.getProfile(p1._id);
+    const stored2 = await repo.getProfile(p2._id);
+    check(
+      '15a. no isDefault persisted on family_profiles',
+      !('isDefault' in stored1) && !('isDefault' in stored2),
+    );
+
+    // 15b. DTO computes isDefault from the user default (first profile is default).
+    let user = await repo.findUserByOpenid('defu');
+    let list = await listProfiles(repo, 'defu');
+    let dtos = list.map((p) => toClientProfile(p, user.defaultFamilyProfileId));
+    const defaultsNow = dtos.filter((d) => d.isDefault);
+    check(
+      '15b. DTO computes isDefault from users.defaultFamilyProfileId',
+      dtos.find((d) => d._id === p1._id).isDefault === true &&
+        dtos.find((d) => d._id === p2._id).isDefault === false,
+    );
+
+    // 15c. Exactly one default is represented in the returned list.
+    check('15c. exactly one default in returned list', defaultsNow.length === 1);
+
+    // 15d. Changing default updates ONLY the user record (no profile mutation).
+    const beforeUpdatedAt = [stored1.updatedAt, stored2.updatedAt];
+    await setDefaultProfile(repo, 'defu', p2._id);
+    const after1 = await repo.getProfile(p1._id);
+    const after2 = await repo.getProfile(p2._id);
+    check(
+      '15d. changing default does not mutate profile documents',
+      after1.updatedAt === beforeUpdatedAt[0] && after2.updatedAt === beforeUpdatedAt[1],
+    );
+
+    // 15e. Computed result follows the new default correctly.
+    user = await repo.findUserByOpenid('defu');
+    list = await listProfiles(repo, 'defu');
+    dtos = list.map((p) => toClientProfile(p, user.defaultFamilyProfileId));
+    check(
+      '15e. setting a new default changes the computed isDefault',
+      dtos.find((d) => d._id === p2._id).isDefault === true &&
+        dtos.find((d) => d._id === p1._id).isDefault === false &&
+        dtos.filter((d) => d.isDefault).length === 1,
+    );
+
+    // 15f. A missing/stale default id falls back safely (no profile marked).
+    const staleDtos = list.map((p) => toClientProfile(p, 'no_such_id'));
+    check(
+      '15f. stale/missing default id -> no profile marked default (safe fallback)',
+      staleDtos.every((d) => d.isDefault === false),
+    );
+  }
+
+  // 16. Shared runtime is packaged into the affected cloud-function builds.
   {
     const loginShared = existsSync(join(ROOT, 'cloudfunctions/login/lib/shared/index.js')) &&
       existsSync(join(ROOT, 'cloudfunctions/login/lib/shared/services/profile-service.js'));
     const profileShared = existsSync(join(ROOT, 'cloudfunctions/profileApi/lib/shared/index.js')) &&
       existsSync(join(ROOT, 'cloudfunctions/profileApi/lib/shared/services/profile-service.js'));
-    check('15a. shared runtime packaged in login', loginShared);
-    check('15b. shared runtime packaged in profileApi', profileShared);
+    check('16a. shared runtime packaged in login', loginShared);
+    check('16b. shared runtime packaged in profileApi', profileShared);
 
     const loginSrc = readFileSync(join(ROOT, 'cloudfunctions/login/index.js'), 'utf8');
     const profileSrc = readFileSync(join(ROOT, 'cloudfunctions/profileApi/index.js'), 'utf8');
     check(
-      '15c. login cloud function uses shared runtime',
+      '16c. login cloud function uses shared runtime',
       /require\(['"]\.\/lib\/shared\/services\/user-service['"]\)/.test(loginSrc),
     );
     check(
-      '15d. profileApi cloud function uses shared runtime',
+      '16d. profileApi cloud function uses shared runtime',
       /require\(['"]\.\/lib\/shared\/services\/profile-service['"]\)/.test(profileSrc),
     );
   }
 
-  // 16. No secrets or environment IDs are committed.
+  // 17. No secrets or environment IDs are committed.
   {
     const gi = readFileSync(join(ROOT, '.gitignore'), 'utf8');
     check('.gitignore ignores generated shared runtime', gi.includes('cloudfunctions/*/lib/shared/'));
