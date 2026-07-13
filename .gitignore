@@ -8,7 +8,10 @@ shared/dist/
 miniprogram/**/*.js
 miniprogram/**/*.js.map
 !miniprogram/**/*.config.js
-cloudfunctions/**/*.js
+# Cloud-function SOURCE (.js) is committed; only the GENERATED shared runtime
+# copied into each function at build time is ignored.
+cloudfunctions/*/lib/shared/
+cloudfunctions/*/node_modules/
 cloudfunctions/**/*.js.map
 *.tsbuildinfo
 

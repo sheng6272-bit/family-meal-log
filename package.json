@@ -7,10 +7,10 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "build:shared": "tsc -p shared/tsconfig.json && node -e \"require('fs').writeFileSync('shared/dist/package.json', JSON.stringify({type:'commonjs'}))\"",
+    "build:shared": "node scripts/build-shared.mjs",
     "test": "npm run build:shared && node scripts/validate.mjs",
     "validate": "npm run typecheck && npm run test",
-    "clean": "node -e \"require('fs').rmSync('shared/dist',{recursive:true,force:true})\""
+    "clean": "node -e \"require('fs').rmSync('shared/dist',{recursive:true,force:true});require('fs').rmSync('cloudfunctions/login/lib/shared',{recursive:true,force:true});require('fs').rmSync('cloudfunctions/profileApi/lib/shared',{recursive:true,force:true});require('fs').rmSync('cloudfunctions/mealApi/lib/shared',{recursive:true,force:true});require('fs').rmSync('cloudfunctions/aiAnalyze/lib/shared',{recursive:true,force:true})\""
   },
   "devDependencies": {
     "miniprogram-api-typings": "^3.12.0",
