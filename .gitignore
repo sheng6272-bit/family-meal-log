@@ -33,6 +33,9 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
+# ---- WorkBuddy project memory (never commit) ----
+.workbuddy/
+
 # ---- Editor ----
 .idea/
 .vscode/*

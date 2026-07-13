@@ -73,6 +73,9 @@ guidance (explicitly excluded), or businesses.
 - A full design system / theming framework.
 - Treating AI output as the authoritative source of nutrition.
 - Multi-account family sharing across different WeChat users (single-owner model for v0.1).
+- Deletion of family profiles (M1 implements create/list/update/select/set-default only;
+  archive/soft-delete is deferred and will be designed later).
+- Nutrition goals, calorie targets, or medical/health attributes on profiles (deferred).
 
 ## 7. MVP acceptance criteria
 

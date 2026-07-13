@@ -7,7 +7,7 @@ Legend: ✅ done · ⬜ planned
 
 ---
 
-## M0 — Foundation & shell ✅ (this task)
+## M0 — Foundation & shell ✅
 **Goal:** a clean, consistent repository foundation and a minimal compilable shell.
 **Scope:** directory structure; README + docs (requirements, architecture, data model,
 flows, plan); shared schemas/validation/nutrition; config templates (no secrets); minimal
@@ -18,14 +18,22 @@ validation command.
 - No secrets, env IDs, or appid committed.
 - Home and add-meal pages compile and navigate; app runs in offline shell mode.
 
-## M1 — Identity & family profiles ⬜
-**Goal:** real WeChat identity and family-member management.
-**Scope:** `login` upserts `users`; create/list/select/edit family profiles; active-profile
-state; first-run "create first profile".
-**Acceptance:**
-- Login returns a stable server-derived openid; a `users` doc exists.
-- User can create ≥ 2 profiles, switch active, and set a default.
-- Access is owner-scoped; no client-supplied openid is trusted.
+## M1 — Identity & family profiles ✅ (this task)
+**Goal:** real WeChat identity and family-member management under the single-owner model.
+**Scope:** `login` upserts `users` (idempotent); `profileApi` (list/create/update/setDefault/
+get); first-run "create first profile" onboarding; profile management UI; active-profile
+resolution + local persistence; shared-runtime packaging into cloud functions; client-safe
+identity (no openid on the client).
+**Acceptance (all verified by `npm run validate` M1 tests — green):**
+- Login returns a stable server-derived identity; a `users` doc exists; login is idempotent.
+- First profile auto-becomes the default; user can create ≥ 2 profiles.
+- Profile names are trimmed; empty names and invalid relations are rejected.
+- Unknown input fields are not persisted; client-supplied `ownerOpenid` is ignored.
+- Access is owner-scoped: another user cannot list/update/set-default the caller's profiles.
+- Stale local active-profile id falls back correctly; default persists across a fresh login.
+- Repeated submit does not create duplicate profiles (server-side dedupe + UI guard).
+- Shared runtime is packaged into `login` and `profileApi`; no secrets committed.
+- **M1 is marked complete only after these acceptance tests pass** (they do).
 
 ## M2 — Food catalog & portions ⬜
 **Goal:** foods and portion→gram conversion in the UI.
