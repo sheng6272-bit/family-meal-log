@@ -1,4 +1,5 @@
 <view class="container">
+  <!-- Meal type (UI-only in M2) -->
   <view class="card">
     <view class="title">选择餐次</view>
     <view class="slots">
@@ -12,16 +13,136 @@
     </view>
   </view>
 
+  <!-- Food search -->
   <view class="card">
-    <view class="title">食物条目</view>
-    <view class="text-weak">手动记录是主要且可靠的方式。</view>
-    <button class="btn-primary item-btn" bindtap="onAddManualItem">手动添加食物</button>
+    <view class="title">搜索食品</view>
+    <view class="search-row">
+      <input
+        class="search-input"
+        placeholder="搜索食品名称、品牌或分类"
+        value="{{searchQuery}}"
+        bindinput="onSearchInput"
+        confirm-type="search"
+      />
+      <view wx:if="{{searchQuery}}" class="search-clear" bindtap="onClearSearch">清除</view>
+    </view>
+
+    <view wx:if="{{searchEmpty}}" class="empty-state">没有找到匹配的食品，换个关键词或自定义一个。</view>
+
+    <scroll-view wx:else scroll-y class="result-list">
+      <view
+        wx:for="{{searchResults}}"
+        wx:key="_id"
+        data-id="{{item._id}}"
+        bindtap="onSelectFood"
+        class="result-item {{selectedFood._id === item._id ? 'result-active' : ''}}"
+      >
+        <view class="result-main">
+          <view class="result-name">{{item.name}}</view>
+          <view class="result-sub">{{item.category}}{{item.brand ? ' · ' + item.brand : ''}}</view>
+        </view>
+        <view class="result-meta">
+          <view class="result-kcal">{{item.per100g.calories}} kcal/100g</view>
+          <view class="result-src">{{item.nutritionMeta.source}} v{{item.nutritionMeta.version}}</view>
+        </view>
+      </view>
+    </scroll-view>
   </view>
 
-  <view class="card" wx:if="{{aiEnabled}}">
-    <view class="title">AI 识别（可选）</view>
-    <view class="text-weak">拍照建议仅供参考，需人工确认后才计入。</view>
+  <!-- Custom food -->
+  <view class="card">
+    <view class="title">自定义食品</view>
+    <view class="text-weak">当前会话内使用，不会保存到云端。</view>
+    <button wx:if="{{!showCustomForm}}" class="btn-primary item-btn" bindtap="onShowCustomForm">自定义食品</button>
+
+    <view wx:if="{{showCustomForm}}" class="custom-form">
+      <view class="form-row">
+        <text class="form-label">名称（必填）</text>
+        <input class="form-input" value="{{customName}}" bindinput="onCustomName" placeholder="如：自制红烧肉" />
+      </view>
+      <view class="form-row">
+        <text class="form-label">品牌（可选）</text>
+        <input class="form-input" value="{{customBrand}}" bindinput="onCustomBrand" placeholder="可选" />
+      </view>
+      <view class="form-row">
+        <text class="form-label">分类（可选）</text>
+        <input class="form-input" value="{{customCategory}}" bindinput="onCustomCategory" placeholder="如：肉类" />
+      </view>
+      <view class="form-grid">
+        <view class="form-row">
+          <text class="form-label">热量/100g</text>
+          <input class="form-input" type="digit" value="{{customCalories}}" bindinput="onCustomCalories" placeholder="kcal" />
+        </view>
+        <view class="form-row">
+          <text class="form-label">蛋白质/100g</text>
+          <input class="form-input" type="digit" value="{{customProtein}}" bindinput="onCustomProtein" placeholder="g" />
+        </view>
+        <view class="form-row">
+          <text class="form-label">碳水/100g</text>
+          <input class="form-input" type="digit" value="{{customCarb}}" bindinput="onCustomCarb" placeholder="g" />
+        </view>
+        <view class="form-row">
+          <text class="form-label">脂肪/100g</text>
+          <input class="form-input" type="digit" value="{{customFat}}" bindinput="onCustomFat" placeholder="g" />
+        </view>
+      </view>
+      <view wx:if="{{customError}}" class="form-error">{{customError}}</view>
+      <view class="form-actions">
+        <button class="btn-ghost" bindtap="onHideCustomForm">取消</button>
+        <button class="btn-primary" loading="{{customSubmitting}}" bindtap="onSubmitCustom">添加</button>
+      </view>
+    </view>
   </view>
 
-  <button class="btn-primary save-btn" bindtap="onSave">保存这一餐</button>
+  <!-- Selected food + portion + preview -->
+  <block wx:if="{{selectedFood}}">
+    <view class="card">
+      <view class="title">已选食品</view>
+      <view class="sel-name">{{selectedFood.name}}</view>
+      <view class="text-weak">{{selectedFood.category}}{{selectedFood.brand ? ' · ' + selectedFood.brand : ''}}</view>
+      <view class="sel-per100">每 100g：{{selectedFood.per100g.calories}} kcal · 蛋白 {{selectedFood.per100g.protein}}g · 碳水 {{selectedFood.per100g.carb}}g · 脂肪 {{selectedFood.per100g.fat}}g</view>
+      <view class="sel-meta">来源：{{selectedFood.source}} / 营养：{{selectedFood.nutritionMeta.source}} v{{selectedFood.nutritionMeta.version}}</view>
+    </view>
+
+    <view class="card">
+      <view class="title">份量与数量</view>
+      <view class="portion-row">
+        <picker
+          class="portion-picker"
+          mode="selector"
+          range="{{portionUnits}}"
+          range-key="label"
+          value="{{selectedUnitIndex}}"
+          bindchange="onUnitChange"
+        >
+          <view class="portion-display">{{portionUnits[selectedUnitIndex].label}}</view>
+        </picker>
+        <input
+          class="portion-qty"
+          type="digit"
+          value="{{quantity}}"
+          bindinput="onQuantityInput"
+          placeholder="数量"
+        />
+      </view>
+      <view class="text-weak">ml 按 1g/ml 估算，仅适合水状食品。</view>
+    </view>
+
+    <view class="card">
+      <view class="title">营养预览</view>
+      <view wx:if="{{previewError}}" class="preview-error">{{previewError}}</view>
+      <view wx:elif="{{previewText}}" class="preview-grid">
+        <view class="preview-cell"><view class="preview-val">{{previewText.grams}}</view><view class="preview-unit">克</view></view>
+        <view class="preview-cell"><view class="preview-val">{{previewText.calories}}</view><view class="preview-unit">kcal</view></view>
+        <view class="preview-cell"><view class="preview-val">{{previewText.protein}}</view><view class="preview-unit">g 蛋白</view></view>
+        <view class="preview-cell"><view class="preview-val">{{previewText.carb}}</view><view class="preview-unit">g 碳水</view></view>
+        <view class="preview-cell"><view class="preview-val">{{previewText.fat}}</view><view class="preview-unit">g 脂肪</view></view>
+      </view>
+      <view wx:else class="text-weak">输入数量和单位后显示预览。</view>
+    </view>
+  </block>
+
+  <!-- M3 boundary -->
+  <view class="m3-note">当前为单项营养预览，餐食保存将在 M3 实现。</view>
+  <button class="btn-primary save-btn" disabled="{{!canSaveMeal}}" bindtap="onSave">保存这一餐</button>
 </view>
