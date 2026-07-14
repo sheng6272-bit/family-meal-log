@@ -75,4 +75,17 @@ if (existsSync(CLOUD_ROOT)) {
   }
 }
 
+// 3. Package the SAME runtime for the Mini Program client (M2). The client
+//    cannot reliably import shared source outside miniprogramRoot, so it runs
+//    the compiled CommonJS runtime from here. Generated + git-ignored; rebuilt
+//    by every `npm run build:shared`. Windows-friendly (copy, no symlink).
+const MINI_ROOT = join(ROOT, 'miniprogram/lib/shared');
+rmSync(MINI_ROOT, { recursive: true, force: true });
+copyDir(DIST, MINI_ROOT);
+writeFileSync(
+  join(MINI_ROOT, 'package.json'),
+  JSON.stringify({ type: 'commonjs' }, null, 2),
+);
+console.log('[build] shared runtime packaged -> miniprogram/lib/shared');
+
 console.log('[build] shared runtime build complete.');
