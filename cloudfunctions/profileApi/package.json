@@ -1,0 +1,9 @@
+{
+  "name": "profileApi",
+  "version": "0.1.0",
+  "description": "Server-trusted family-profile management (list/create/update/setDefault).",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

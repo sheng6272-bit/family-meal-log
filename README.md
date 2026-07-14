@@ -86,16 +86,22 @@ npm test             # build shared + run scripts/validate.mjs
 ```
 
 `scripts/validate.mjs` checks structural consistency (files, page references, cloud
-functions, secret hygiene) and exercises the shared nutrition + validation layer.
+functions, secret hygiene) and exercises the shared nutrition + validation layer **and the
+M1 identity/profile logic** (idempotent login, owner isolation, default persistence,
+shared-runtime packaging). `scripts/build-shared.mjs` compiles `shared/` and packages it
+into each cloud function's `lib/shared/` — run it before deploying cloud functions.
+
+See `docs/SECURITY.md` for collections/indexes/security rules and `docs/MANUAL_TEST_CHECKLIST.md`
+for device test steps.
 
 ## 7. Planned development milestones
 
 | # | Milestone | Outcome |
 |---|-----------|---------|
-| M0 | **Foundation & shell** (this task) | Repo structure, docs, shared layer, compilable shell, validation |
-| M1 | Identity & family profiles | WeChat login, create/select family members |
-| M2 | Food catalog & portions | Foods, portion units, gram conversion UI |
-| M3 | Manual meal logging | Add/save meals, per-item + daily nutrition totals |
+| M0 | **Foundation & shell** ✅ | Repo structure, docs, shared layer, compilable shell, validation |
+| M1 | **Identity & family profiles** ✅ | Server-trusted login + `profileApi`; profiles UI; active-profile state; shared-runtime packaging |
+| M2 | Food catalog & portion units | System + ad-hoc foods, portion units, gram conversion, single-food live nutrition (no meal saving) |
+| M3 | Manual meal logging | Combine foods into a meal; meal type/date; save & reload |
 | M4 | Daily history | Browse meals by day, edit, delete |
 | M5 | Saved foods & recipes | Reusable foods and simple family recipes |
 | M6 | Photo upload | CloudBase storage upload workflow |
@@ -104,20 +110,29 @@ functions, secret hygiene) and exercises the shared nutrition + validation layer
 
 Full breakdown with acceptance criteria: `docs/DEVELOPMENT_PLAN.md`.
 
+> **M2 scope note:** M2 covers *only* the food catalog and portion units (single-food live
+> nutrition). It does **not** save meals — `mealApi` create/list/get/update/delete, daily meal
+> history, recipes, photo upload, and AI recognition are later milestones (M3–M8).
+
 ## 8. Repository layout
 
 ```
 .
 ├── README.md
-├── docs/                     # product & engineering docs
+├── docs/                     # product & engineering docs (incl. SECURITY, MANUAL_TEST_CHECKLIST)
 ├── miniprogram/              # WeChat Mini Program (TypeScript)
 │   ├── app.ts / app.json / app.wxss
-│   ├── config/               # environment config (no secrets)
-│   ├── services/             # cloud wrapper + provider-neutral AI adapter
-│   └── pages/                # home + add-meal placeholder pages
-├── cloudfunctions/           # CloudBase cloud functions (login, mealApi, aiAnalyze)
-├── shared/                   # schemas, validation, nutrition (source of truth)
-├── scripts/validate.mjs      # foundation smoke test
+│   ├── config/               # environment config (no secrets) + relation labels
+│   ├── services/             # cloud wrapper, auth, profile, session, AI adapter
+│   └── pages/                # home, add-meal, profiles, profile-edit
+├── cloudfunctions/           # CloudBase cloud functions
+│   ├── login/                # server-trusted identity upsert (M1)
+│   ├── profileApi/           # list/create/update/setDefault/get (M1)
+│   ├── mealApi/              # meal CRUD placeholder (M3)
+│   └── aiAnalyze/            # mock AI provider (M7)
+│   └── <fn>/lib/shared/      # GENERATED shared runtime (git-ignored)
+├── shared/                   # schemas, validation, nutrition, user/profile services (source of truth)
+├── scripts/                  # build-shared.mjs + validate.mjs
 ├── typings/                  # ambient TypeScript typings
 ├── project.config.json       # WeChat project config (non-secret)
 ├── tsconfig.json / package.json

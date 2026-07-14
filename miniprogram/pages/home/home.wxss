@@ -21,3 +21,14 @@
 .add-btn {
   margin-top: 24rpx;
 }
+.manage-btn {
+  margin-top: 16rpx;
+}
+.card-tap {
+  /* tap affordance for the active-profile card */
+}
+.btn-ghost {
+  background: #ffffff;
+  color: var(--color-primary);
+  border: 1rpx solid var(--color-primary);
+}

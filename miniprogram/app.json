@@ -1,7 +1,9 @@
 {
   "pages": [
     "pages/home/home",
-    "pages/add-meal/add-meal"
+    "pages/add-meal/add-meal",
+    "pages/profiles/profiles",
+    "pages/profile-edit/profile-edit"
   ],
   "window": {
     "navigationBarTitleText": "家庭饮食记录",

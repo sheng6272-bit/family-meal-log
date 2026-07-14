@@ -1,0 +1,27 @@
+<view class="container">
+  <view class="card text-weak" wx:if="{{!cloudReady}}">未配置云环境，无法加载成员。</view>
+
+  <block wx:else>
+    <view class="profile-list">
+      <view class="profile-item" wx:for="{{profiles}}" wx:key="_id">
+        <view class="profile-main">
+          <view class="profile-name">
+            {{item.name}}
+            <text class="badge badge-default" wx:if="{{item.isDefault}}">默认</text>
+            <text class="badge badge-active" wx:if="{{item._id === activeFamilyProfileId}}">当前</text>
+          </view>
+          <view class="text-weak">{{item.relationLabel}}</view>
+        </view>
+        <view class="profile-actions">
+          <button size="mini" bindtap="onSelect" data-id="{{item._id}}">选择</button>
+          <button size="mini" wx:if="{{!item.isDefault}}" disabled="{{submitting}}" bindtap="onSetDefault" data-id="{{item._id}}">设为默认</button>
+          <button size="mini" bindtap="onEdit" data-id="{{item._id}}">编辑</button>
+        </view>
+      </view>
+    </view>
+
+    <view class="empty text-weak" wx:if="{{profiles.length === 0}}">还没有家庭成员，点击下方添加。</view>
+
+    <button class="btn-primary add-btn" bindtap="onCreate">添加成员</button>
+  </block>
+</view>
