@@ -36,23 +36,33 @@ identity (no openid on the client).
 - Shared runtime is packaged into `login` and `profileApi`; no secrets committed.
 - **M1 is marked complete only after these acceptance tests pass** (they do).
 
-## M2 — Food catalog & portion units ⬜
+## M2 — Food catalog & portion units ✅
 **Goal:** foods and portion→gram conversion in the UI (no meal persistence yet).
 **Scope (exactly):**
-- A small curated **system food seed dataset**.
-- **Food search and selection**.
-- **User-defined ad-hoc foods**.
-- **Generic portion units** (e.g. g, ml) and **food-specific portion units**.
-- **Portion-to-gram conversion**.
-- **Live nutrition preview for a single food item**.
-- **Source and version metadata** for nutrition records.
-**Explicitly excluded from M2:** saving meals; `mealApi` create/list/get/update/delete;
-daily meal history; recipes; photo upload; AI recognition. Meal persistence belongs to M3.
-**Acceptance:**
+- A small curated **system food seed dataset** (`shared/data/system-foods.ts`, 11 foods,
+  离线可用，主食/肉类/水果/蔬菜/奶类/蛋/水产…).
+- **Food search and selection** (`searchFoods`).
+- **User-defined ad-hoc foods** (`createAdHocFood`, session-only, never persisted).
+- **Generic portion units** (`g`, `ml`) and **food-specific portion units** (`碗/个/根/杯…`),
+  merged with food-specific first.
+- **Portion-to-gram conversion** (`quantity × gramsPerUnit → grams`).
+- **Live nutrition preview for a single food item** (kcal/protein/carb/fat, 1 decimal), all
+  math in the shared layer; the `add-meal` Page holds no nutrition formulas.
+- **Source and version metadata** for nutrition records (`Food.nutritionMeta = { source,
+  version }`; provenance of nutrition numbers, distinct from `Food.source`).
+**Explicitly excluded from M2 (enforced by `validate.mjs` guards):** saving meals; `mealApi`
+create/list/get/update/delete; daily meal history; recipes; photo upload; AI recognition.
+The "保存这一餐" button is disabled with an M3 note and never fakes success.
+**Acceptance (all verified by `npm run validate` M2 tests — green):**
 - Selecting a food + unit + quantity shows correct grams and calories/macros matching the
-  shared nutrition tests.
-- Invalid inputs are rejected by shared validators with clear messages.
-- A food carries source + version metadata.
+  shared nutrition tests (`scaleNutrition` / `gramsFromPortion`).
+- Invalid inputs are rejected by shared validators with clear Chinese messages (empty/negative
+  name or macros; non-finite quantity; invalid gramsPerUnit).
+- Ad-hoc foods drop unknown fields (incl. `ownerOpenid`); they are usable immediately and are
+  not written to CloudBase.
+- A food carries `nutritionMeta.source` + `nutritionMeta.version`; seed = `curated_mvp_seed`,
+  ad-hoc = `user_entered`.
+- The add-meal page makes no `mealApi` call and writes no `meals` record (scope boundary).
 
 ## M3 — Manual meal logging ⬜
 **Goal:** the primary end-to-end workflow — combine foods into a meal and persist it.

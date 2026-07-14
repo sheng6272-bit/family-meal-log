@@ -80,7 +80,36 @@ default (safe fallback) and active-profile resolution falls through to the first
 - Unknown/ownership fields in the payload → ignored server-side.
 - Duplicate name is **not** an error — it is a valid create (see the note above).
 
-## 4. Manual meal logging (M3, planned; primary, always available)
+## 4. Add-meal: food catalog & portion preview (M2)
+
+This milestone lets the user build the *intake* half of a meal entry — pick a food, choose a
+portion unit + quantity, and see a live nutrition preview — **without persisting anything**. The
+"保存这一餐" button is intentionally disabled (meal save is M3).
+
+1. Home → **添加一餐 (Add meal)** → `add-meal` page.
+2. (UI-only) Pick a **meal slot** (breakfast/lunch/dinner/snack) — not persisted in M2.
+3. **Search** the bundled system catalog (offline-capable) by name / brand / category; results
+   stream from `food-catalog.searchFoods`.
+4. **Tap a result** → the selected food loads its portion units (food-specific first, then
+   `g`/`ml`); the default unit is preselected and the quantity resets to `1`.
+5. **Pick a portion unit** and **enter a quantity**. The page computes grams live
+   (`quantity × gramsPerUnit`) and the per-100g-scaled nutrition preview
+   (kcal/protein/carb/fat, 1 decimal) via `food-catalog.computePreview`. **All nutrition math
+   lives in the shared layer; the Page only renders.**
+6. **Ad-hoc food:** tap 自定义食品 → enter name/brand/category + per-100g kcal/protein/carb/fat
+   → `createAdHocFood` validates (trim, non-negative finite macros), drops unknown fields
+   (incl. `ownerOpenid`), and returns a session-only `user`-source food usable immediately for
+   preview. **Not persisted** in M2.
+7. **No save in M2.** The "保存这一餐" button is disabled and shows "餐食保存将在 M3 实现". The
+   page makes **no** `mealApi` call and writes **no** `meals` record.
+
+_Source/version metadata:_ each food shows `nutritionMeta.source` + `nutritionMeta.version`
+(e.g. `curated_mvp_seed` for seed foods, `user_entered` for ad-hoc). This is the **provenance of
+the nutrition numbers**, distinct from `Food.source` (business origin).
+
+_Fallback:_ the entire flow works offline (the seed catalog is bundled) with **no** cloud call.
+
+## 5. Manual meal logging (M3, planned; primary, always available)
 
 1. Home → **添加一餐 (Add meal)**.
 2. Select **meal slot** (breakfast/lunch/dinner/snack).
@@ -95,7 +124,7 @@ default (safe fallback) and active-profile resolution falls through to the first
 
 _Fallback:_ everything here works with AI disabled/unavailable.
 
-## 5. AI-assisted meal logging (M7, planned; optional, mock first)
+## 6. AI-assisted meal logging (M7, planned; optional, mock first)
 
 1. In Add-meal, user chooses **AI 识别 (photo)** (only when enabled).
 2. User picks/takes a photo → client uploads to CloudBase Storage → gets `fileID`.
@@ -107,20 +136,20 @@ _Fallback:_ everything here works with AI disabled/unavailable.
 
 _Fallback:_ if analysis fails → "请手动添加" and drop to the manual flow.
 
-## 6. Meal editing (M4, planned)
+## 7. Meal editing (M4, planned)
 
 1. From daily history, tap a meal.
 2. Edit items; subtotal recomputes live.
 3. **Save** → `mealApi.update`; server re-validates and recomputes `totals`.
 
-## 7. Meal deletion (M4, planned)
+## 8. Meal deletion (M4, planned)
 
 1. Tap **删除 (Delete)**; confirm in a dialog.
 2. `mealApi.delete` removes the meal (owner-checked).
 
 > Note: family-profile **deletion** is explicitly out of scope for M1 (see ARCHITECTURE §11).
 
-## 8. Viewing daily history (M4, planned)
+## 9. Viewing daily history (M4, planned)
 
 1. Home defaults to **today** for the active member (local `YYYY-MM-DD` day).
 2. User can change the **date** and/or **family member**.

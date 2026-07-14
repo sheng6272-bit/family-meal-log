@@ -159,10 +159,40 @@ so two different users may safely reuse the same `requestId` string without coll
 | brand | string | | |
 | category | string | | |
 | per100g | NutritionPer100g | ✓ | nutrition density per 100 g |
-| source | FoodSource | ✓ | system / user / recipe |
-| ownerOpenid | string | | set for user-custom foods |
+| source | FoodSource | ✓ | business origin: system / user / recipe |
+| nutritionMeta | NutritionDataMetadata | ✓ | **provenance of the nutrition numbers** (see below) |
+| ownerOpenid | string | | set for user-custom foods (server-derived; never trusted from client) |
 | isSaved | boolean | ✓ | appears in "saved foods" |
 | createdAt / updatedAt | number | ✓ | |
+
+> **Two distinct "source" concepts (M2).** `Food.source` (type `FoodSource`) is the
+> **business origin** of the food item (`system` = shipped seed catalog, `user` =
+> user-entered ad-hoc, `recipe` = derived from a recipe). `Food.nutritionMeta.source`
+> (type `string`) is the **provenance of the nutrition numbers themselves** — where the
+> per-100g values came from. They are intentionally separate so a `user`-entered food can
+> record `nutritionMeta.source: 'user_entered'` while a `system` food records
+> `nutritionMeta.source: 'curated_mvp_seed'`. We **never** claim an external authority
+> (USDA, brand lab, etc.) unless that provenance is actually verified; the MVP seed uses
+> the honest internal tag `curated_mvp_seed`.
+
+**`NutritionDataMetadata` (M2):**
+| Field | Type | Req | Notes |
+|-------|------|-----|-------|
+| source | string | ✓ | non-empty; provenance tag, e.g. `curated_mvp_seed` / `user_entered` |
+| version | string | ✓ | non-empty; schema/version of the nutrition data, e.g. `1` |
+
+**Seed foods (M2):** `source: 'system'`, `isSaved: false`, `ownerOpenid: undefined`, and
+`nutritionMeta: { source: 'curated_mvp_seed', version: '1' }`. The seed catalog lives in
+`shared/data/system-foods.ts`, is bundled into the Mini Program runtime (offline-capable),
+and is **never** written to CloudBase in M2.
+
+**Ad-hoc foods (M2):** created session-only via `createAdHocFood`; `source: 'user'`,
+`isSaved: false`, `ownerOpenid: undefined` (client-supplied ownership is dropped), and
+`nutritionMeta: { source: 'user_entered', version: '1' }`. They live only for the current
+session and are **not** persisted in M2.
+
+> `validateFood` (shared) requires a non-empty `nutritionMeta.source` **and**
+> `nutritionMeta.version`; missing/empty provenance fails validation.
 
 ## 4. PortionUnit — collection `portion_units` (M2)
 | Field | Type | Req | Notes |

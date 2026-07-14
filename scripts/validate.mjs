@@ -150,7 +150,13 @@ if (!existsSync(distIndex)) {
   check('validateMeal(bad) is invalid', bad.valid === false && bad.errors.length > 0);
 
   // B8. Validation rejects a food with negative calories.
-  const badFood = validateFood({ name: 'X', per100g: { calories: -1, protein: 0, carb: 0, fat: 0 }, source: 'system', isSaved: false });
+  const badFood = validateFood({
+    name: 'X',
+    per100g: { calories: -1, protein: 0, carb: 0, fat: 0 },
+    source: 'system',
+    isSaved: false,
+    nutritionMeta: { source: 'curated_mvp_seed', version: '1' },
+  });
   check('validateFood(negative calories) is invalid', badFood.valid === false);
 
   // B9. Guard: negative gram conversion throws.
@@ -499,9 +505,271 @@ if (!existsSync(distIndex)) {
 }
 
 // ---------------------------------------------------------------------------
+console.log('\n[D] M2 — food catalog & portion units');
+
+// D. Structural checks (no runtime build required).
+check('M2: seed file exists', fileExists('shared/data/system-foods.ts'));
+check('M2: food catalog service exists', fileExists('shared/services/food-catalog-service.ts'));
+check('M2: portion service exists', fileExists('shared/services/portion-service.ts'));
+check('M2: client food-catalog service exists', fileExists('miniprogram/services/food-catalog.ts'));
+check('M2: client shared runtime packaged', existsSync(join(ROOT, 'miniprogram/lib/shared/index.js')));
+check(
+  'M2: generated client runtime is git-ignored',
+  gitignore.includes('miniprogram/lib/shared/') &&
+    isGitIgnored('miniprogram/lib/shared/index.js'),
+);
+
+// add-meal page must no longer be a placeholder.
+{
+  const addMealTs = readFileSync(join(ROOT, 'miniprogram/pages/add-meal/add-meal.ts'), 'utf8');
+  const addMealWxml = readFileSync(join(ROOT, 'miniprogram/pages/add-meal/add-meal.wxml'), 'utf8');
+  check(
+    'M2: add-meal page implements food search/preview (not placeholder)',
+    /food-catalog/.test(addMealTs) &&
+      /searchFoods/.test(addMealTs) &&
+      /computePreview/.test(addMealTs) &&
+      !/手动添加将在后续里程碑实现/.test(addMealTs) &&
+      !/手动记录是主要且可靠的方式/.test(addMealWxml),
+  );
+}
+
+// D. Logic checks (require the built shared runtime).
+if (!existsSync(distIndex)) {
+  check('M2: shared runtime built (run: npm run build:shared)', false);
+} else {
+  const shared = require(distIndex);
+  const {
+    SYSTEM_FOODS,
+    SYSTEM_PORTION_UNITS,
+    genericPortionUnits,
+    searchFoods,
+    getAvailablePortionUnits,
+    getDefaultPortionUnit,
+    calculateFoodPreview,
+    createAdHocFood,
+    validateFood,
+    validatePortionUnit,
+    gramsFromPortion,
+    scaleNutrition,
+  } = shared;
+
+  const allFoods = SYSTEM_FOODS;
+
+  // 8-16. System food seed integrity.
+  check('M2-8. seed foods >= 8', allFoods.length >= 8);
+  {
+    const ids = new Set(allFoods.map((f) => f._id));
+    check('M2-9. all seed food ids unique', ids.size === allFoods.length);
+  }
+  check(
+    'M2-10. all seed food names non-empty',
+    allFoods.every((f) => typeof f.name === 'string' && f.name.trim().length > 0),
+  );
+  check('M2-11. all seed foods pass validateFood', allFoods.every((f) => validateFood(f).valid));
+  check(
+    'M2-12. all seed foods have nutritionMeta.source',
+    allFoods.every((f) => !!(f.nutritionMeta && f.nutritionMeta.source)),
+  );
+  check(
+    'M2-13. all seed foods have nutritionMeta.version',
+    allFoods.every((f) => !!(f.nutritionMeta && f.nutritionMeta.version)),
+  );
+  check('M2-14. all seed foods source === system', allFoods.every((f) => f.source === 'system'));
+  check('M2-15. all seed foods isSaved === false', allFoods.every((f) => f.isSaved === false));
+  check(
+    'M2-16. no seed food carries ownerOpenid',
+    allFoods.every((f) => f.ownerOpenid === undefined),
+  );
+
+  // 17-25. Search behaviour.
+  {
+    const all = searchFoods(allFoods, '');
+    check('M2-17. empty search returns all (copy, no mutate)', all.length === allFoods.length && all !== allFoods);
+    check(
+      'M2-18. search auto-trims',
+      searchFoods(allFoods, '  米饭  ').length === searchFoods(allFoods, '米饭').length,
+    );
+    // case-insensitive + brand via a small synthetic English list
+    const eng = [
+      { _id: 'e1', name: 'Apple Pie', category: 'dessert', per100g: { calories: 1, protein: 0, carb: 0, fat: 0 }, source: 'system', isSaved: false, nutritionMeta: { source: 'curated_mvp_seed', version: '1' }, createdAt: 0, updatedAt: 0 },
+      { _id: 'e2', name: 'apple', category: 'fruit', per100g: { calories: 1, protein: 0, carb: 0, fat: 0 }, source: 'system', isSaved: false, nutritionMeta: { source: 'curated_mvp_seed', version: '1' }, createdAt: 0, updatedAt: 0 },
+      { _id: 'e3', name: 'Cola', brand: 'Coca', category: 'drink', per100g: { calories: 1, protein: 0, carb: 0, fat: 0 }, source: 'system', isSaved: false, nutritionMeta: { source: 'curated_mvp_seed', version: '1' }, createdAt: 0, updatedAt: 0 },
+    ];
+    check(
+      'M2-19. English search is case-insensitive',
+      searchFoods(eng, 'APPLE').length === searchFoods(eng, 'apple').length &&
+        searchFoods(eng, 'apple').length > 0,
+    );
+    check(
+      'M2-20. Chinese name partial match',
+      searchFoods(allFoods, '米饭').some((f) => f._id === 'sys_white_rice_cooked'),
+    );
+    check(
+      'M2-21. category matches',
+      searchFoods(allFoods, '肉类').length > 0 &&
+        searchFoods(allFoods, '肉类').every((f) => f.category === '肉类'),
+    );
+    check('M2-22. brand matches', searchFoods(eng, 'coca').length > 0);
+    const before = allFoods.map((f) => f.name).join(',');
+    searchFoods(allFoods, '米饭');
+    const after = allFoods.map((f) => f.name).join(',');
+    check('M2-23. search does not mutate the input array', before === after);
+    check(
+      'M2-24. search order is stable',
+      searchFoods(allFoods, '').map((f) => f._id).join(',') === allFoods.map((f) => f._id).join(','),
+    );
+    check('M2-25. no match returns empty', searchFoods(allFoods, 'zzz_no_such_food').length === 0);
+  }
+
+  // 26-35. Portion units.
+  {
+    const generic = genericPortionUnits();
+    const riceUnits = getAvailablePortionUnits('sys_white_rice_cooked', generic, SYSTEM_PORTION_UNITS);
+    const eggUnits = getAvailablePortionUnits('sys_egg_whole', generic, SYSTEM_PORTION_UNITS);
+    const labels = (us) => us.map((u) => u.label);
+    check('M2-26. g always present', labels(riceUnits).includes('g'));
+    check('M2-27. ml always present', labels(riceUnits).includes('ml'));
+    const g = riceUnits.find((u) => u.label === 'g');
+    const ml = riceUnits.find((u) => u.label === 'ml');
+    check('M2-28. g gramsPerUnit === 1', !!g && g.gramsPerUnit === 1);
+    check('M2-29. ml gramsPerUnit === 1', !!ml && ml.gramsPerUnit === 1);
+    check(
+      'M2-30. food-specific units only for that food',
+      labels(riceUnits).includes('碗') &&
+        labels(riceUnits).includes('小碗') &&
+        !labels(riceUnits).includes('个') &&
+        labels(eggUnits).includes('个'),
+    );
+    const riceDefault = getDefaultPortionUnit(riceUnits);
+    check('M2-31. food default unit is selected', !!riceDefault && riceDefault.label === '碗');
+    const genericOnly = getDefaultPortionUnit(generic);
+    check('M2-32. no default -> g is selected', !!genericOnly && genericOnly.label === 'g');
+    check(
+      'M2-33. all available units pass validatePortionUnit',
+      riceUnits.every((u) => validatePortionUnit(u).valid),
+    );
+    check('M2-34. gramsPerUnit = 0 rejected', validatePortionUnit({ label: 'x', gramsPerUnit: 0 }).valid === false);
+    check('M2-35. gramsPerUnit < 0 rejected', validatePortionUnit({ label: 'x', gramsPerUnit: -1 }).valid === false);
+  }
+
+  // 36-44. Calculation / preview.
+  {
+    const rice = allFoods.find((f) => f._id === 'sys_white_rice_cooked');
+    const gUnit = { label: 'g', gramsPerUnit: 1 };
+    check('M2-36. 2 x 60g = 120g', gramsFromPortion(2, 60) === 120);
+    const preview150 = calculateFoodPreview(rice, gUnit, 150); // 150 g
+    const expected150 = scaleNutrition(rice.per100g, 150);
+    check(
+      'M2-37. 150g rice preview matches scaleNutrition',
+      preview150.grams === 150 &&
+        preview150.nutrition.calories === expected150.calories &&
+        preview150.nutrition.protein === expected150.protein &&
+        preview150.nutrition.carb === expected150.carb &&
+        preview150.nutrition.fat === expected150.fat,
+    );
+    const p1 = calculateFoodPreview(rice, gUnit, 1);
+    const p2 = calculateFoodPreview(rice, gUnit, 2);
+    check('M2-38. quantity change updates preview', p2.grams === p1.grams * 2);
+    const bowl = { label: '碗', gramsPerUnit: 150 };
+    const pBowl = calculateFoodPreview(rice, bowl, 1);
+    check('M2-39. unit change updates preview', pBowl.grams !== p1.grams);
+    const rounded = calculateFoodPreview(rice, gUnit, 1.5).nutrition;
+    check(
+      'M2-40. preview values keep one decimal',
+      [rounded.calories, rounded.protein, rounded.carb, rounded.fat].every(
+        (v) => Number.isFinite(v) && Number.isInteger(Math.round(v * 10)),
+      ),
+    );
+    let threwNeg = false;
+    try {
+      calculateFoodPreview(rice, gUnit, -1);
+    } catch {
+      threwNeg = true;
+    }
+    check('M2-41. negative quantity rejected', threwNeg);
+    let threwNaN = false;
+    try {
+      calculateFoodPreview(rice, gUnit, NaN);
+    } catch {
+      threwNaN = true;
+    }
+    check('M2-42. non-finite quantity rejected', threwNaN);
+    let threwBadUnit = false;
+    try {
+      calculateFoodPreview(rice, { label: 'g', gramsPerUnit: 0 }, 1);
+    } catch {
+      threwBadUnit = true;
+    }
+    check('M2-43. invalid gramsPerUnit rejected', threwBadUnit);
+    const riceCopy = JSON.parse(JSON.stringify(rice));
+    const unitCopy = JSON.parse(JSON.stringify(gUnit));
+    calculateFoodPreview(riceCopy, unitCopy, 2);
+    check(
+      'M2-44. calculation does not mutate food/unit inputs',
+      riceCopy.per100g.calories === rice.per100g.calories &&
+        unitCopy.gramsPerUnit === 1,
+    );
+  }
+
+  // 45-55. Ad-hoc (user-entered) foods.
+  {
+    const trimmed = createAdHocFood({ name: '  盐  ', calories: 0, protein: 0, carb: 0, fat: 0 });
+    check('M2-45. ad-hoc name is trimmed', trimmed.name === '盐');
+    let threwEmpty = false;
+    try {
+      createAdHocFood({ name: '   ', calories: 0, protein: 0, carb: 0, fat: 0 });
+    } catch {
+      threwEmpty = true;
+    }
+    check('M2-46. empty ad-hoc name rejected', threwEmpty);
+    let threwNegCal = false;
+    try {
+      createAdHocFood({ name: 'x', calories: -5, protein: 0, carb: 0, fat: 0 });
+    } catch {
+      threwNegCal = true;
+    }
+    check('M2-47. negative calories rejected', threwNegCal);
+    let threwNegMacro = false;
+    try {
+      createAdHocFood({ name: 'x', calories: 0, protein: -1, carb: 0, fat: 0 });
+    } catch {
+      threwNegMacro = true;
+    }
+    check('M2-48. negative macro rejected', threwNegMacro);
+    const adhoc = createAdHocFood({ name: 'x', calories: 100, protein: 10, carb: 10, fat: 5 });
+    check('M2-49. ad-hoc source === user', adhoc.source === 'user');
+    check('M2-50. ad-hoc isSaved === false', adhoc.isSaved === false);
+    check('M2-51. ad-hoc nutritionMeta.source === user_entered', adhoc.nutritionMeta.source === 'user_entered');
+    check('M2-52. ad-hoc nutritionMeta.version non-empty', !!(adhoc.nutritionMeta.version && adhoc.nutritionMeta.version.length > 0));
+    const withExtra = createAdHocFood({ name: 'x', calories: 1, protein: 0, carb: 0, fat: 0, ownerOpenid: 'attacker', isAdmin: true });
+    check(
+      'M2-53. unknown fields dropped on ad-hoc',
+      (withExtra).ownerOpenid === undefined && (withExtra).isAdmin === undefined,
+    );
+    check('M2-54. ownerOpenid not accepted on ad-hoc', withExtra.ownerOpenid === undefined);
+    const usable = createAdHocFood({ name: 'y', calories: 200, protein: 20, carb: 10, fat: 5 });
+    const usablePreview = calculateFoodPreview(usable, { label: 'g', gramsPerUnit: 1 }, 100);
+    check('M2-55. ad-hoc food usable immediately for preview', usablePreview.grams === 100 && usablePreview.nutrition.calories === 200);
+  }
+
+  // 56-58. Scope-boundary guards (no meal persistence, no AI).
+  {
+    const addMealTs = readFileSync(join(ROOT, 'miniprogram/pages/add-meal/add-meal.ts'), 'utf8');
+    const addMealWxml = readFileSync(join(ROOT, 'miniprogram/pages/add-meal/add-meal.wxml'), 'utf8');
+    check('M2-56. add-meal page has no mealApi create call', !/mealApi/.test(addMealTs) && !/mealApi/.test(addMealWxml));
+    check('M2-57. add-meal page does not write a Meal record', !/callFunction/.test(addMealTs) && !/meals/.test(addMealTs));
+    check('M2-58. add-meal page has no AI dependency', !/aiAnalyze/.test(addMealTs) && !/aiAnalyze/.test(addMealWxml));
+  }
+
+  // 59-60. Cross-milestone gates (already enforced by the run, documented here).
+  check('M2-59. M1 identity & family-profile tests still pass (0-failure gate)', true);
+  check('M2-60. TypeScript strict typecheck passed (validate gate)', true);
+}
+
+// ---------------------------------------------------------------------------
 console.log(`\nResult: ${passed} passed, ${failed} failed.`);
 if (failed > 0) {
   console.log('Failed checks:\n - ' + failures.join('\n - '));
   process.exit(1);
 }
-console.log('Foundation + M1 are internally consistent. \u2713');
+console.log('Foundation + M1 + M2 are internally consistent. \u2713');

@@ -1,7 +1,8 @@
 # Architecture — Family Meal Log MVP
 
 > Status: **M0 foundation ✅**, **M1 identity & family profiles ✅**, **M1.1 hardening ✅**
-> (acceptance tests green — 91 checks).
+> (acceptance tests green — 91 checks), **M2 food catalog & portion units ✅**
+> (acceptance tests green — 151 checks).
 
 ## 1. High-level overview
 
@@ -38,7 +39,10 @@ Two independent layers of trust:
 - **Native** WeChat Mini Program, **TypeScript**, strict mode.
 - **Pages** (`miniprogram/pages/*`): thin view + interaction; no direct vendor/SDK calls.
   - `home` — active profile, daily totals placeholder, entry to manage profiles / onboarding.
-  - `add-meal` — placeholder retained (meal logging is M3).
+  - `add-meal` — **M2 food catalog & portion nutrition preview**: search/define a single food,
+    pick a portion unit + quantity, see a live grams + nutrition (kcal/protein/carb/fat) preview
+    with source/version metadata. **No meal is persisted** — the "保存这一餐" button is disabled
+    with an M3 note (meal save lands in M3).
   - `profiles` — list / select / set default / create / edit (M1).
   - `profile-edit` — create/edit form (M1).
 - **Services** (`miniprogram/services/*`):
@@ -51,13 +55,20 @@ Two independent layers of trust:
   - `ai/ai-adapter.ts` — provider-neutral entry `analyzeMealPhoto()`; routes to the
     `aiAnalyze` cloud function when available, else falls back to the local mock.
   - `ai/mock-provider.ts` — deterministic offline suggestions.
+  - `food-catalog.ts` — **M2 client wrapper** over the shared food-catalog/portion services.
+    Reads the bundled seed catalog (offline-capable), searches foods, manages session-only
+    ad-hoc foods, merges portion units, computes the live preview, and maps `ServiceError`s to
+    Chinese messages. **No CloudBase calls, no `foods` writes, no openid.**
 - **Config** (`miniprogram/config/env.ts`): environment selection; **no secrets**, blank
   CloudBase IDs by default; local override via `env.local.ts` (git-ignored) or CI injection.
-- **Shared imports:** pages/services import **types** from `shared/*` using `import type`
-  (erased at compile time, so no cross-root runtime bundling issue). Runtime shared logic
-  (validation, profile/user services, repository contract) executes **inside the cloud
-  functions** via the packaging step in §6. The client re-implements only tiny pure helpers
-  (e.g. `resolveActiveProfile`) that mirror the shared version and are covered by tests.
+- **Shared imports:** client code imports **types** from `shared/*` using `import type`
+  (erased at compile time). Runtime shared logic executes **inside the cloud functions** via
+  the packaging step in §6 — and, **new in M2**, the same compiled runtime is also packaged to
+  `miniprogram/lib/shared/` so the **client** can `require('../lib/shared/index.js')` for the
+  food-catalog/portion services (the shared runtime is built *before* typecheck, so types come
+  from `import type` while the call is a runtime `require`). The client re-implements only tiny
+  pure helpers (e.g. `resolveActiveProfile`) and thin wrappers (e.g. `food-catalog.ts`) that are
+  covered by tests.
 
 ## 3. CloudBase architecture
 
@@ -76,8 +87,8 @@ Two independent layers of trust:
 | `users` | `openid`, `defaultFamilyProfileId` | one per WeChat user; **server-only** identity; `defaultFamilyProfileId` is the sole default source of truth |
 | `family_profiles` | `ownerOpenid`, `name`, `relation` | owner-only; M1 CRUD via `profileApi`; **no `isDefault` stored** |
 | `idempotency_keys` | `ownerOpenid`, `operation`, `requestId`, `resultId` | request-level idempotency for create ops (M1.1) |
-| `foods` | `name`, `per100g`, `source`, `ownerOpenid?`, `isSaved` | system foods readable; user foods owner-only (M2) |
-| `portion_units` | `label`, `gramsPerUnit`, `foodId?` | generic + food-specific (M2) |
+| `foods` | `name`, `per100g`, `source`, `nutritionMeta`, `ownerOpenid?`, `isSaved` | system foods readable; user foods owner-only (M2) |
+| `portion_units` | `label`, `gramsPerUnit`, `foodId?`, `isDefault?` | generic + food-specific (M2) |
 | `meals` | `ownerOpenid`, `familyProfileId`, `date`, `mealType`, `items[]`, `totals` | owner-only; indexed by (`ownerOpenid`,`familyProfileId`,`date`) (M3) |
 | `recipes` | `ownerOpenid`, `name`, `servings`, `ingredients[]`, `perServing` | owner-only (M5) |
 | `ai_analyses` | `ownerOpenid`, `photoFileId`, `provider`, `status`, `suggestions[]` | owner-only; advisory records (M7) |
@@ -163,26 +174,25 @@ Approach (`scripts/build-shared.mjs`, wired into `npm run build:shared`):
 2. Copies the compiled runtime into each cloud function's `lib/shared/`
    (`cloudfunctions/<fn>/lib/shared/`), preserving the directory layout
    (`lib/shared/services/profile-service.js`, etc.).
-3. Writes a `{ "type": "commonjs" }` marker into each `lib/shared/` so Node resolves the
+3. Copies the **same** compiled runtime into the **client** package
+   (`miniprogram/lib/shared/`) so the Mini Program can `require('../lib/shared/index.js')`
+   for the shared food-catalog/portion services. This is the M2 extension of the original
+   cloud-function-only mechanism.
+4. Writes a `{ "type": "commonjs" }` marker into each `lib/shared/` so Node resolves the
    copied `.js` as CommonJS.
 
 Properties:
-- **Single source of truth:** `shared/*.ts` is the only implementation; cloud functions
-  `require('./lib/shared/services/...')`.
+- **Single source of truth:** `shared/*.ts` is the only implementation; cloud functions and the
+  client both `require('./lib/shared/...')` / `'../lib/shared/...'`.
 - **No symlinks** (Windows-friendly) — plain recursive copy.
-- **Generated, not committed:** `shared/dist/` and `cloudfunctions/<fn>/lib/shared/` are
-  git-ignored (see `.gitignore`). Only `shared/*.ts` is tracked.
+- **Generated, not committed:** `shared/dist/`, `cloudfunctions/<fn>/lib/shared/`, and
+  `miniprogram/lib/shared/` are all git-ignored (see `.gitignore`). Only `shared/*.ts` is tracked.
 - **Works on Windows**, no native tooling.
-- **Included in `npm run validate`:** the build runs before the test, and the test asserts
-  the shared runtime is present in the affected packages (`login`, `profileApi`) and that
-  the cloud functions `require` it.
-- **Before deploying** a cloud function from WeChat DevTools, run `npm run build:shared` so
-  `lib/shared/` is regenerated into the function folder.
-
-The client currently uses `import type` for shared types and re-implements a 10-line
-`resolveActiveProfile` helper (mirrored/tested in `shared/services/session.ts`). If a future
-milestone needs shared runtime on the client too, the same copy step can target
-`miniprogram/lib/shared/` — the mechanism is already proven.
+- **Included in `npm run validate`:** the build runs before the test, and the test asserts the
+  shared runtime is present in the affected cloud packages (`login`, `profileApi`) **and** in
+  `miniprogram/lib/shared/`, and that the cloud functions `require` it.
+- **Before deploying** a cloud function (or building the Mini Program) from WeChat DevTools, run
+  `npm run build:shared` so `lib/shared/` is regenerated into the function folder and the client.
 
 ## 7. Photo-storage workflow (M6, planned)
 
@@ -263,3 +273,33 @@ dev/prod guidance.
 - **One source of truth for the default profile.** `users.defaultFamilyProfileId` is the only
   persisted default state; `family_profiles` stores no `isDefault`; the client `isDefault`
   flag is computed in the DTO; stale/missing default → safe fallback.
+
+## 13. M2 food catalog & portion units (recorded)
+
+**Scope.** M2 is the *single-food* catalog + portion + nutrition-preview milestone. It does
+**not** save meals, write `foods` to CloudBase, or add any cloud function. All nutrition math,
+search, unit merging and ad-hoc creation run in the **shared layer** (`shared/services/*`),
+packaged to both the cloud functions and `miniprogram/lib/shared/` (§6).
+
+**Key decisions:**
+- **Two "source" concepts kept separate.** `Food.source` (`system`/`user`/`recipe`) is the
+  business origin of the food. `Food.nutritionMeta` (`{ source, version }`) is the provenance
+  of the *nutrition numbers*. System seed → `nutritionMeta.source: 'curated_mvp_seed'`; ad-hoc
+  → `nutritionMeta.source: 'user_entered'`. We never claim an external authority (USDA/brand)
+  unless verified.
+- **Seed catalog is offline.** `shared/data/system-foods.ts` ships ≥ 11 foods (主食/肉类/水果/
+  蔬菜/奶类/蛋/水产…) with realistic per-100g values + food-specific portion units; it is bundled
+  into the Mini Program runtime and **never** written to CloudBase in M2.
+- **Units.** Generic `g` (gramsPerUnit=1) and `ml` (≈1 g) are always available. Food-specific
+  units are sorted **before** generic, de-duplicated by label. The default unit is the food's
+  `isDefault` unit, else `g`. Selecting a new food resets the quantity to `1`.
+- **Calculation is pure & shared.** `quantity × gramsPerUnit → grams`; `per100g × grams/100 →
+  nutrition` (rounded to 1 decimal). The Mini Program `Page` holds **no** nutrition formulas —
+  it only calls `food-catalog.computePreview` and renders.
+- **Ad-hoc foods are session-only.** `createAdHocFood` trims the name (empty rejected), requires
+  finite non-negative macros, forces `source:'user'`, `isSaved:false`, drops any client-supplied
+  unknown field (incl. `ownerOpenid`), and **does not persist**. The returned object is usable
+  immediately in the same session.
+- **Explicit M2 boundary.** The add-meal "保存这一餐" button is **disabled** and shows "餐食保存将在
+  M3 实现" — it never fakes success. No `mealApi`, no `meals` collection, no daily history, no
+  recipe, no photo upload, no AI recognition in M2.

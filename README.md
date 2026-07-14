@@ -1,7 +1,10 @@
 # Family Meal Log MVP (家庭饮食记录)
 
 A family-oriented food-intake logging **WeChat Mini Program** built on **Tencent CloudBase**.
-This repository currently contains the **project foundation and a minimal compilable shell only** — not the finished product.
+This repository currently contains the **project foundation (M0), identity & family profiles (M1),
+and the food catalog & portion-units milestone (M2)**. Manual meal saving (M3) and later
+milestones are not yet implemented — the add-meal page shows a live nutrition preview but does
+**not** persist a meal.
 
 ---
 
@@ -86,10 +89,13 @@ npm test             # build shared + run scripts/validate.mjs
 ```
 
 `scripts/validate.mjs` checks structural consistency (files, page references, cloud
-functions, secret hygiene) and exercises the shared nutrition + validation layer **and the
-M1 identity/profile logic** (idempotent login, owner isolation, default persistence,
-shared-runtime packaging). `scripts/build-shared.mjs` compiles `shared/` and packages it
-into each cloud function's `lib/shared/` — run it before deploying cloud functions.
+functions, secret hygiene) and exercises the shared nutrition + validation layer, the **M1
+identity/profile logic** (idempotent login, owner isolation, default persistence,
+shared-runtime packaging), **and the M2 food-catalog logic** (seed integrity, search, portion
+units, preview calculation, ad-hoc foods, and M2 scope-boundary guards). `scripts/build-shared.mjs`
+compiles `shared/` and packages it into each cloud function's `lib/shared/` **and** the Mini
+Program's `miniprogram/lib/shared/` — run it before deploying cloud functions or building the
+Mini Program.
 
 See `docs/SECURITY.md` for collections/indexes/security rules and `docs/MANUAL_TEST_CHECKLIST.md`
 for device test steps.
@@ -100,7 +106,7 @@ for device test steps.
 |---|-----------|---------|
 | M0 | **Foundation & shell** ✅ | Repo structure, docs, shared layer, compilable shell, validation |
 | M1 | **Identity & family profiles** ✅ | Server-trusted login + `profileApi`; profiles UI; active-profile state; shared-runtime packaging |
-| M2 | Food catalog & portion units | System + ad-hoc foods, portion units, gram conversion, single-food live nutrition (no meal saving) |
+| M2 | **Food catalog & portion units** ✅ | System + ad-hoc foods, portion units, gram conversion, single-food live nutrition (no meal saving) |
 | M3 | Manual meal logging | Combine foods into a meal; meal type/date; save & reload |
 | M4 | Daily history | Browse meals by day, edit, delete |
 | M5 | Saved foods & recipes | Reusable foods and simple family recipes |
@@ -123,14 +129,16 @@ Full breakdown with acceptance criteria: `docs/DEVELOPMENT_PLAN.md`.
 ├── miniprogram/              # WeChat Mini Program (TypeScript)
 │   ├── app.ts / app.json / app.wxss
 │   ├── config/               # environment config (no secrets) + relation labels
-│   ├── services/             # cloud wrapper, auth, profile, session, AI adapter
-│   └── pages/                # home, add-meal, profiles, profile-edit
+│   ├── services/             # cloud wrapper, auth, profile, session, AI adapter, **food-catalog (M2)**
+│   └── pages/                # home, add-meal (M2 food catalog), profiles, profile-edit
 ├── cloudfunctions/           # CloudBase cloud functions
 │   ├── login/                # server-trusted identity upsert (M1)
 │   ├── profileApi/           # list/create/update/setDefault/get (M1)
 │   ├── mealApi/              # meal CRUD placeholder (M3)
 │   └── aiAnalyze/            # mock AI provider (M7)
 │   └── <fn>/lib/shared/      # GENERATED shared runtime (git-ignored)
+├── shared/                   # schemas, validation, nutrition, user/profile/food-catalog services (source of truth)
+│   └── data/system-foods.ts  # M2 curated offline seed catalog + portion units
 ├── shared/                   # schemas, validation, nutrition, user/profile services (source of truth)
 ├── scripts/                  # build-shared.mjs + validate.mjs
 ├── typings/                  # ambient TypeScript typings
