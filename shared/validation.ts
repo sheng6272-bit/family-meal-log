@@ -20,6 +20,7 @@ import type {
   NutritionValues,
   PortionUnit,
   Recipe,
+  NutritionDataMetadata,
 } from './types';
 
 export interface ValidationResult {
@@ -70,6 +71,17 @@ export function validateFood(food: unknown): ValidationResult {
     errors.push(`food.source must be one of ${FOOD_SOURCES.join(', ')}`);
   }
   if (typeof f.isSaved !== 'boolean') errors.push('food.isSaved must be a boolean');
+  if (!f.nutritionMeta || typeof f.nutritionMeta !== 'object') {
+    errors.push('food.nutritionMeta is required');
+  } else {
+    const meta = f.nutritionMeta as Partial<NutritionDataMetadata>;
+    if (!isNonEmptyString(meta.source)) {
+      errors.push('food.nutritionMeta.source must be a non-empty string');
+    }
+    if (!isNonEmptyString(meta.version)) {
+      errors.push('food.nutritionMeta.version must be a non-empty string');
+    }
+  }
   return fail(errors);
 }
 

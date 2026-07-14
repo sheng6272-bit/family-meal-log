@@ -24,6 +24,20 @@ export interface NutritionValues {
   fat: number; // g
 }
 
+/**
+ * Provenance of a food's *nutrition numbers* — distinct from `Food.source`,
+ * which is the business origin of the food definition (system / user / recipe).
+ * - `source`  : where the nutrition values came from (e.g. 'curated_mvp_seed',
+ *               'user_entered'). Does NOT claim a government/USDA/brand database
+ *               unless that is genuinely the source.
+ * - `version` : the version of that nutrition dataset, so future re-calibration
+ *               is auditable.
+ */
+export interface NutritionDataMetadata {
+  source: string;
+  version: string;
+}
+
 /** Nutrition density expressed per 100 grams of an edible food. */
 export type NutritionPer100g = NutritionValues;
 
@@ -81,6 +95,11 @@ export interface Food extends AuditFields {
   source: FoodSource;
   ownerOpenid?: string; // present for user-saved/custom foods
   isSaved: boolean; // appears in the user's "saved foods" list
+  /**
+   * Provenance of the nutrition numbers (NOT the food's business source).
+   * Required. See `NutritionDataMetadata`.
+   */
+  nutritionMeta: NutritionDataMetadata;
 }
 
 /** 4. A portion unit; may be generic or specific to a food. */
