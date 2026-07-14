@@ -93,7 +93,7 @@ check(
 );
 // A5. Security: .gitignore protects secrets and private config.
 const gitignore = readFileSync(join(ROOT, '.gitignore'), 'utf8');
-check('.gitignore ignores .env', /(^|\n)\.env(\n|$|\*)/.test(gitignore));
+check('.gitignore ignores .env', /(^|\r?\n)\.env(\r?\n|$|\*)/.test(gitignore));
 check('.gitignore ignores project.private.config.json', gitignore.includes('project.private.config.json'));
 
 // ---------------------------------------------------------------------------

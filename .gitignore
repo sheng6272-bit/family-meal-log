@@ -42,3 +42,5 @@ Thumbs.db
 !.vscode/extensions.json
 
 miniprogram/config/env.local.ts
+
+.env
