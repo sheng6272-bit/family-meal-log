@@ -1,0 +1,276 @@
+# AGENTS.md — Family Meal Log MVP
+
+Permanent operating rules for autonomous coding agents (Codex, WorkBuddy, etc.)
+entering this repository. A deeper-directory `AGENTS.md` may add more specific
+rules; when rules conflict, the more specific directory wins.
+
+## 1. Purpose and instruction precedence
+
+- These rules apply to the whole repository.
+- A subdirectory `AGENTS.md` may refine rules for that subtree.
+- On conflict, follow the more specific directory's rule.
+- `docs/DEVELOPMENT_PLAN.md` is the authoritative source of milestone scope.
+- The `shared/` TypeScript definitions and implementations are the authoritative
+  source of truth for the domain model and nutrition logic.
+- Do **not** expand scope based on the README summary alone. The README is
+  marketing/overview; `DEVELOPMENT_PLAN.md` defines what is actually in scope.
+
+## 2. Project summary
+
+This is a **Native WeChat Mini Program** (no UI framework) written in
+**TypeScript strict mode**, backed by **Tencent CloudBase** (cloud functions +
+document DB + storage). It is a **family meal-logging MVP**.
+
+- The **manual** workflow (pick food, portion, quantity, see nutrition) is the
+  primary, always-available path.
+- **AI is optional and deferred.** It may only *suggest*; it can never be the
+  source of final nutrition values.
+- The **client is not trusted** for identity (`openid`) or for final nutrition
+  totals. Those are derived/validated/recomputed server-side.
+
+Do not add frameworks, libraries, or dependencies that are not already present
+and confirmed in `package.json` without explicit task approval.
+
+## 3. Repository map
+
+| Path | Role |
+|------|------|
+| `miniprogram/` | WeChat Mini Program (TypeScript). |
+| `miniprogram/pages/` | Pages + UI state (e.g. `home`, `add-meal`, `profiles`). Thin view layer. |
+| `miniprogram/services/` | Client service boundary. `cloud.ts` is the only `wx.cloud` touchpoint. |
+| `cloudfunctions/` | CloudBase cloud functions — the **trusted server boundary**. |
+| `shared/` | **Single source of truth** for schemas, validation, nutrition, and services. |
+| `scripts/build-shared.mjs` | Compiles the shared runtime and copies it into cloud functions **and** `miniprogram/lib/shared/`. |
+| `scripts/validate.mjs` | Structural + behavioural validation (the primary gate). |
+| `docs/` | Engineering docs (architecture, data model, plan, flows, security, manual tests). |
+
+Emphasis:
+- `shared/` is the only implementation of domain rules and nutrition math.
+- Cloud functions re-validate untrusted input and recompute nutrition.
+- The client consumes the shared runtime via `require('../lib/shared/index.js')`
+  (built before typecheck; types come from `import type`).
+
+## 4. Required startup procedure
+
+Before any task, every agent MUST run:
+
+```bash
+git status --short
+git branch --show-current
+git fetch origin --prune
+npm ci                      # package-lock.json is tracked; use it
+npm run validate            # typecheck + build:shared + smoke/logic tests
+```
+
+Rules:
+- If the working tree has **unexplained user changes** (not created by you or a
+  prior agent run), **stop and report** — do not overwrite them.
+- Never develop directly on `master`.
+- Confirm the target milestone and its scope from `docs/DEVELOPMENT_PLAN.md`
+  before writing code.
+
+## 5. Milestone workflow
+
+1. Read `docs/DEVELOPMENT_PLAN.md`.
+2. Implement **only** the milestone you are assigned.
+3. Explicitly list **included** and **excluded** scope before coding.
+4. Do **not** pre-implement later milestones.
+5. Prefer the smallest verifiable design that satisfies acceptance criteria.
+6. Every new behaviour MUST have an automated test.
+7. Update the relevant docs and the manual test checklist.
+8. Only mark a milestone complete after validation passes.
+9. Any unexecuted real-device test MUST be recorded as **pending manual verification**.
+
+Branch naming:
+- `feature/m<number>-<short-scope>` — e.g. `feature/m2-food-catalog-portions`
+- `fix/<short-description>`
+- `chore/<short-description>`
+- `docs/<short-description>`
+
+## 6. Architecture rules
+
+- `shared/` is the **only** implementation of validation, domain rules, and
+  nutrition calculation.
+- Pages MUST NOT copy nutrition formulas. They call `food-catalog.computePreview`
+  (or the equivalent shared service) and render.
+- Pages stay a **thin UI layer** (state + events + render). No business logic.
+- Cloud functions MUST re-validate untrusted input with the shared validators.
+- `openid` MUST be derived from the server-side WeChat context
+  (`cloud.getWXContext().OPENID`).
+- The client MUST NOT send, receive, log, or store `openid`.
+- Client-supplied `ownerOpenid` or `totals` are **untrusted** and ignored/overwritten.
+- AI MAY only suggest; it can never be the final nutrition data source.
+- Food nutrition values MUST be computed by the shared nutrition layer.
+- Do NOT copy `shared` logic into the client or a cloud function for convenience.
+- The shared runtime MUST be generated by the `build-shared` script.
+- Do NOT use symlinks. The build copies files to stay Windows-compatible.
+
+## 7. Generated files
+
+These are produced by `npm run build:shared` and MUST NOT be committed
+(confirmed against `.gitignore`):
+
+- `shared/dist/`
+- `cloudfunctions/*/lib/shared/`
+- `miniprogram/lib/shared/`
+
+Rules:
+- Run `npm run build:shared` to (re)generate them before deploying a cloud
+  function or building the Mini Program in WeChat DevTools.
+- Do not hand-edit generated files.
+- Do not commit them.
+- Change `shared/*.ts` source, not the generated output.
+
+## 8. Secrets and environment safety
+
+Never read, print, modify, or commit any of:
+
+- `.env`, `.env.*`
+- `miniprogram/config/env.local.ts`
+- CloudBase environment IDs
+- API keys / tokens
+- `openid` / `unionid`
+- private test-account data
+- private settings in `project.private.config.json`
+- local credentials
+- `node_modules`
+- transient logs and screenshots
+
+Additional rules:
+- Never paste secrets into docs, test fixtures, commit messages, or PR descriptions.
+- Production deployment, permission-rule changes, and real env-var edits require
+  explicit human approval.
+- Do NOT run `npm audit fix --force`.
+- Do NOT bulk-upgrade many dependencies without task approval.
+
+## 9. CloudBase rules
+
+- Do not proactively deploy to production.
+- Do not create or delete production data.
+- Do not change database permission rules unless the task explicitly requires it.
+- When adding or modifying a cloud function you MUST:
+  - use the server-side identity,
+  - re-validate input,
+  - return client-safe DTOs (no `openid`),
+  - run `build-shared`,
+  - update deployment notes.
+- If you cannot actually deploy, state **pending deployment** clearly. Never
+  claim something was deployed.
+
+## 10. UI and Mini Program rules
+
+- Keep the **Native WeChat Mini Program** style. Do not introduce a UI framework
+  unless the task explicitly approves it.
+- Never pass `undefined` or `NaN` to `setData`.
+- Keep editable input state as `string` where the user is typing.
+- User-facing errors MUST be clear Chinese messages.
+- A network or cloud-function failure MUST NOT be faked as success.
+- Offline mode MUST be indicated explicitly.
+- Never claim a real-device test passed if it was not executed.
+- WeChat DevTools and phone verification are **human acceptance** steps.
+
+## 11. Testing and validation
+
+Before every commit, run at least:
+
+```bash
+npm run typecheck       # tsc --noEmit -p tsconfig.json
+npm run build:shared    # node scripts/build-shared.mjs
+npm run test            # build:shared + node scripts/validate.mjs
+npm run validate        # typecheck && test  (covers the above)
+git diff --check
+git status --short
+```
+
+(NOTE: `npm run validate` already runs `typecheck` + `build:shared` + `test`, so
+it is the single authoritative command; the others are listed for clarity and
+for incremental use.)
+
+Rules:
+- All previously passing tests MUST keep passing.
+- New features MUST add tests.
+- Do NOT delete tests to make the build green.
+- Do NOT weaken a failing test into a meaningless assertion.
+- Reports MUST include the real pass/fail counts.
+- Automated and manual tests MUST be reported separately.
+
+## 12. Git and commit rules
+
+- Do not commit directly to `master`.
+- Do not force-push.
+- Do not rewrite already-pushed history unless explicitly requested by a human.
+- Do not auto-merge.
+- Do not auto-delete branches.
+- Use 2–5 logical commits sized to the task.
+- Commit messages follow **Conventional Commits** (`feat:`, `fix:`, `test:`,
+  `docs:`, `chore:`, `refactor:`, `build:`).
+- Review the staged diff before committing.
+- Do not commit unrelated formatting changes.
+- Do NOT generate Word/PDF/screenshots/extra reports unless explicitly asked.
+
+## 13. Pull request requirements
+
+A PR MUST:
+- have `master` as the **base**,
+- have the task branch as the **head**,
+- clearly list a **Summary**,
+- clearly list the **Scope boundary** (included + excluded),
+- list the **Validation** commands and their real results,
+- list **Manual verification** still required,
+- list **Deferred work**.
+
+Rules:
+- Do NOT claim manual tests passed if they were not executed.
+- Do NOT auto-merge.
+- If GitHub permissions are insufficient to open a PR:
+  - keep the pushed branch,
+  - provide the compare URL or exact PR steps,
+  - do NOT fabricate a PR link.
+
+## 14. Definition of done
+
+A task is done only when ALL of these hold:
+
+- implementation matches the current milestone scope,
+- TypeScript strict passes,
+- `npm run validate` reports **0 failed**,
+- `git diff --check` is clean,
+- no secrets or generated files entered the commit,
+- docs and the manual test checklist are updated,
+- the working tree is clean,
+- the branch is pushed, OR the environmental reason for not pushing is recorded,
+- minimal human acceptance steps are provided,
+- the PR was not auto-merged.
+
+## 15. Stop and ask conditions
+
+Only stop and ask the user when:
+
+- you find unexplained uncommitted user changes,
+- you need to delete user or production data,
+- you need a production deployment,
+- you need a secret, paid service, or new permission,
+- two requirements are genuinely incompatible,
+- you need to change a security boundary,
+- you need an irreversible Git operation,
+- an automated test cannot pass and a reasonable fix would exceed scope.
+
+Ordinary engineering choices should NOT trigger frequent questions — pick the
+smallest, safest, testable approach.
+
+## 16. Final response format
+
+Every agent's final report MUST include:
+
+- **branch**
+- **commits**
+- **files changed**
+- **implementation summary**
+- **scope exclusions**
+- **validation commands**
+- **exact test result**
+- **git diff --check result**
+- **git status result**
+- **manual verification remaining**
+- **push/PR status**
+- **known risks or deferred work**

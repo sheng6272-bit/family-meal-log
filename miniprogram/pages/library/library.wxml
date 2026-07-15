@@ -1,0 +1,84 @@
+<view class="container">
+  <view wx:if="{{!cloudReady}}" class="card">
+    <view class="title">离线模式</view>
+    <view class="text-weak">云端未连接时，收藏和食谱功能不可用。</view>
+  </view>
+
+  <block wx:else>
+    <view wx:if="{{libraryError}}" class="card error-card">{{libraryError}}</view>
+
+    <view class="card">
+      <view class="title">收藏食品</view>
+      <view wx:if="{{savedFoods.length === 0}}" class="text-weak">还没有收藏的食品。</view>
+      <view wx:for="{{savedFoods}}" wx:key="_id" class="list-item">
+        <view>
+          <view class="item-title">{{item.name}}</view>
+          <view class="item-sub">{{item.category || '未分类'}}<text wx:if="{{item.brand}}"> · {{item.brand}}</text></view>
+          <view class="item-sub">{{item.per100g.calories}} kcal / 100g</view>
+        </view>
+        <text class="action-link danger" data-id="{{item._id}}" bindtap="onDeleteSavedFood">移除</text>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="title">{{editingRecipeId ? '编辑食谱' : '新建食谱'}}</view>
+      <view class="form-row">
+        <text class="form-label">食谱名称</text>
+        <input class="form-input" value="{{recipeName}}" bindinput="onRecipeName" placeholder="例如：番茄鸡蛋盖饭" />
+      </view>
+      <view class="form-row">
+        <text class="form-label">份数</text>
+        <input class="form-input" type="digit" value="{{recipeServings}}" bindinput="onRecipeServings" placeholder="1" />
+      </view>
+
+      <view class="form-row">
+        <text class="form-label">添加食材</text>
+        <view class="search-row">
+          <input class="form-input search-input" value="{{ingredientSearchQuery}}" bindinput="onIngredientSearchInput" placeholder="搜索系统食品或已收藏食品" />
+          <view wx:if="{{ingredientSearchQuery}}" class="search-clear" bindtap="onClearIngredientSearch">清空</view>
+        </view>
+      </view>
+
+      <view wx:if="{{ingredientSearchEmpty}}" class="text-weak">没有找到可添加的食材。</view>
+      <scroll-view wx:else scroll-y class="result-list">
+        <view wx:for="{{ingredientSearchResults}}" wx:key="_id" class="result-item">
+          <view>
+            <view class="item-title">{{item.name}}</view>
+            <view class="item-sub">{{item.category || '未分类'}}</view>
+          </view>
+          <text class="action-link" data-id="{{item._id}}" bindtap="onAddIngredient">添加</text>
+        </view>
+      </scroll-view>
+
+      <view class="draft-head">
+        <view class="form-label">当前食材</view>
+        <text wx:if="{{editingRecipeId}}" class="action-link" bindtap="onCancelRecipeEdit">取消编辑</text>
+      </view>
+      <view wx:if="{{draftIngredients.length === 0}}" class="text-weak">请先添加至少一个食材。</view>
+      <view wx:for="{{draftIngredients}}" wx:key="key" class="list-item">
+        <view class="ingredient-main">
+          <view class="item-title">{{item.food.name}}</view>
+          <input class="grams-input" type="digit" value="{{item.gramsText}}" data-index="{{index}}" bindinput="onIngredientGrams" placeholder="克数" />
+        </view>
+        <text class="action-link danger" data-index="{{index}}" bindtap="onRemoveIngredient">移除</text>
+      </view>
+
+      <view wx:if="{{recipeError}}" class="error-text">{{recipeError}}</view>
+      <button class="btn-primary submit-btn" loading="{{recipeSubmitting}}" bindtap="onSubmitRecipe">{{editingRecipeId ? '保存食谱' : '创建食谱'}}</button>
+    </view>
+
+    <view class="card">
+      <view class="title">我的食谱</view>
+      <view wx:if="{{recipes.length === 0}}" class="text-weak">还没有创建食谱。</view>
+      <view wx:for="{{recipes}}" wx:key="_id" class="recipe-card">
+        <view class="item-title">{{item.name}}</view>
+        <view class="item-sub">{{item.servings}} 份 · 每份 {{item.gramsPerServing}}g</view>
+        <view class="item-sub">{{item.perServing.calories}} kcal · 蛋白质 {{item.perServing.protein}}g · 碳水 {{item.perServing.carb}}g · 脂肪 {{item.perServing.fat}}g</view>
+        <view class="meal-actions">
+          <text class="action-link" data-id="{{item._id}}" bindtap="onEditRecipe">编辑</text>
+          <text class="action-link danger" data-id="{{item._id}}" bindtap="onDeleteRecipe">删除</text>
+        </view>
+      </view>
+    </view>
+  </block>
+</view>

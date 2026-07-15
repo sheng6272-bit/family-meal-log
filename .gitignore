@@ -13,6 +13,8 @@ miniprogram/**/*.js.map
 cloudfunctions/*/lib/shared/
 cloudfunctions/*/node_modules/
 cloudfunctions/**/*.js.map
+# Mini Program client also consumes the GENERATED shared runtime (M2+).
+miniprogram/lib/shared/
 *.tsbuildinfo
 
 # ---- Secrets & local environment ----

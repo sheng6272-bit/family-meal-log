@@ -1,239 +1,201 @@
-# Data Model — Family Meal Log MVP (v0.1)
+# Data Model - Family Meal Log MVP
 
-Authoritative TypeScript definitions live in [`shared/types.ts](../shared/types.ts) and
-[`shared/constants.ts`](../shared/constants.ts). This document summarizes the initial
-schemas. Conventions:
+Authoritative definitions live in `shared/types.ts` and `shared/constants.ts`. This document is
+the human-readable summary for the finished M0-M8 MVP.
 
-- `_id` — CloudBase document id (assigned on insert).
-- `ownerOpenid` — WeChat openid of the owning account (**server-derived, never trusted from
-  the client**).
-- Timestamps `createdAt` / `updatedAt` — epoch **milliseconds** (number).
-- Grouping dates (`date`, `birthDate`) — `YYYY-MM-DD` strings (local day).
-- Nutrition — `calories` in **kcal**, `protein`/`carb`/`fat` in **grams**.
+Conventions:
 
-Enumerations (`shared/constants.ts`):
-- `MealType` = `breakfast | lunch | dinner | snack`
-- `RecordSource` = `manual | ai_assisted`
-- `ItemSource` = `manual | ai_suggested`
-- `FoodSource` = `system | user | recipe`
-- `FamilyRelation` = `self | spouse | child | parent | other`
-- `AiAnalysisStatus` = `pending | succeeded | failed`
+- `_id`: CloudBase document id.
+- `ownerOpenid`: server-derived trusted owner identity.
+- `createdAt` / `updatedAt`: epoch milliseconds.
+- `date`: `YYYY-MM-DD`.
+- calories in kcal; protein/carb/fat in grams.
 
-**Local natural-day rule (recorded for M1):** a meal belongs to the device's local calendar
-day, expressed as `YYYY-MM-DD` with the day running `00:00–23:59`. This convention is decided
-now; meal entities using it land in M3.
+## 1. Enumerations
 
----
+- `MealType = breakfast | lunch | dinner | snack`
+- `RecordSource = manual | ai_assisted`
+- `ItemSource = manual | ai_suggested`
+- `FoodSource = system | user | recipe`
+- `FamilyRelation = self | spouse | child | parent | other`
+- `AiAnalysisStatus = pending | succeeded | failed`
 
-## Required indexes
+## 2. Required collections
 
-| Collection | Index | Purpose |
-|-----------|-------|---------|
-| `users` | `openid` **unique** | one document per WeChat user; idempotent upsert |
-| `family_profiles` | `ownerOpenid` (asc) + `createdAt` (asc) | owner-scoped list, deterministic order |
-| `idempotency_keys` | `ownerOpenid` + `operation` + `requestId` **composite (currently non-unique)** | best-effort request idempotency for create ops (promote to unique index at M3) |
+| Collection | Purpose |
+|------------|---------|
+| `users` | one record per WeChat user |
+| `family_profiles` | owner-scoped family members |
+| `idempotency_keys` | request replay for profile create |
+| `meals` | persisted meals with embedded item snapshots |
+| `foods` | owner-scoped saved foods |
+| `recipes` | owner-scoped recipes |
+| `ai_analyses` | advisory AI analyses |
 
-> Race condition note: CloudBase document DB does not offer a transactional `findOrCreate`
-> with a guaranteed unique constraint in the same call as a normal query+insert. The
-> `login` service mitigates by upserting on `openid` (query then insert only when absent)
-> and treating `openid` as the ownership key. If CloudBase later supports a unique-index
-> enforced `upsert`, switch to it; until then, the query-then-insert is the documented
-> mitigation and is safe under normal single-caller concurrency (one openid per user).
+## 3. Required indexes
 
-> **Idempotency is best-effort (尽力式请求幂等) — M1.1.** Profile creation uses *client
-> in-flight protection plus server-side request replay handling*: the client generates a
-> stable `requestId` per edit session and the server records it in `idempotency_keys`, keyed
-> by `(ownerOpenid, operation, requestId)`, then replays the originally created profile on a
-> repeat with the same `requestId`. This is **best-effort request idempotency**, **not**
-> strict/atomic idempotency. Key facts:
-> - **Same `requestId`** → normally returns the original result (no duplicate created).
-> - **Different `requestId`s** → always treated as a new intent, so profiles with **identical
->   names** are allowed (names are not a uniqueness key).
-> - The `findIdempotencyKey` → (create profile) → `saveIdempotencyKey` sequence is **not
->   atomic**; two truly-concurrent same-`requestId` calls could both miss the lookup and each
->   create a profile before either writes the key. This is the **residual concurrency race**.
-> - The **UI in-flight guard** (`submitting` flag) reduces the practical risk for this
->   single-owner family MVP, where one user taps "save" once.
-> - A future **generic atomic** solution should claim the idempotency key **before** entity
->   creation — e.g. a **unique** composite index on `(ownerOpenid, operation, requestId)` so a
->   duplicate-key insert error means "already processed → return the stored `resultId`."
-> - That stronger implementation is scheduled for **M3**, when meal creation also requires
->   idempotency (same pattern, higher write volume).
-> See ARCHITECTURE.md §5b and SECURITY.md §3.
+| Collection | Index | Notes |
+|------------|-------|-------|
+| `users` | `openid` unique | one user record per WeChat identity |
+| `family_profiles` | `(ownerOpenid, createdAt)` | deterministic owner-scoped listing |
+| `idempotency_keys` | `(ownerOpenid, operation, requestId)` | request replay for profile create |
+| `meals` | `(ownerOpenid, familyProfileId, date)` | daily history queries |
+| `meals` | `(ownerOpenid, requestId)` unique | required for atomic meal create replay |
+| `foods` | `(ownerOpenid, updatedAt)` | saved-food listing |
+| `recipes` | `(ownerOpenid, updatedAt)` | recipe listing |
+| `ai_analyses` | `(ownerOpenid, createdAt)` | advisory-history listing if needed later |
 
----
+## 4. Core entities
 
-## NutritionValues (embedded value object)
-| Field | Type | Notes |
-|-------|------|-------|
-| calories | number | kcal, ≥ 0 |
-| protein | number | g, ≥ 0 |
-| carb | number | g, ≥ 0 |
-| fat | number | g, ≥ 0 |
+### User
 
-## 1. User — collection `users`
-| Field | Type | Req | Notes |
-|-------|------|-----|-------|
-| _id | string | auto | internal document id |
-| openid | string | ✓ | WeChat openid; **unique**; **server-derived only** |
-| unionid | string | | when available; server-derived |
-| defaultFamilyProfileId | string | | **single source of truth** for the default profile |
-| createdAt / updatedAt | number | ✓ | epoch ms |
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `openid` | string | yes | server-derived only |
+| `defaultFamilyProfileId` | string | no | single source of truth for default profile |
+| `createdAt` / `updatedAt` | number | yes | |
 
-**Client contract:** the client NEVER receives `openid`/`unionid`. The `login` cloud function
-returns only `{ id: <_id>, defaultFamilyProfileId }`. Identity is resolved server-side on
-every call.
+### FamilyProfile
 
-**Default-profile single source of truth (M1.1):** `users.defaultFamilyProfileId` is the
-**only** persisted representation of which profile is the default. `setDefault` writes only
-this field — it never touches profile documents. There is **no** `isDefault` column on
-`family_profiles`; the client-facing `isDefault` flag is **computed in the DTO** as
-`profile.id === user.defaultFamilyProfileId`. A missing or stale `defaultFamilyProfileId`
-(pointing at a deleted/foreign profile) simply yields **no** profile marked default — a safe
-fallback with zero data repair required.
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `ownerOpenid` | string | yes | trusted owner |
+| `name` | string | yes | trimmed, non-empty |
+| `relation` | `FamilyRelation` | yes | |
+| `createdAt` / `updatedAt` | number | yes | |
 
-## 2. FamilyProfile — collection `family_profiles`  (M1)
-| Field | Type | Req | Notes |
-|-------|------|-----|-------|
-| _id | string | auto | |
-| ownerOpenid | string | ✓ | owner; **assigned only on the server** |
-| name | string | ✓ | trimmed, non-empty, ≤ 30 chars |
-| relation | FamilyRelation | ✓ | one of `self \| spouse \| child \| parent \| other` |
-| createdAt / updatedAt | number | ✓ | |
+Important rule:
 
-> **No `isDefault` field is stored here (M1.1).** Default state lives solely on
-> `users.defaultFamilyProfileId`; the client DTO computes `isDefault` at read time.
+- `isDefault` is never stored on profile docs.
 
-> **`name` is NOT a uniqueness key (M1.1).** The same owner may hold multiple profiles with
-> an identical `name` (and even identical `name + relation`) — e.g. two children both called
-> "宝宝". No name-based deduplication is performed on create. Accidental double-submits are
-> prevented by (a) a UI in-flight guard and (b) **best-effort** request-level idempotency via
-> a client-generated `requestId` (see `idempotency_keys`), **not** by comparing names.
+### IdempotencyKey
 
-**M1 scope:** `name` and `relation` are the only editable attributes. No birth date, height,
-weight, calorie target, or medical data yet.
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `ownerOpenid` | string | yes | |
+| `operation` | string | yes | currently profile create |
+| `requestId` | string | yes | stable client replay key |
+| `resultId` | string | yes | produced document id |
+| `createdAt` | number | yes | |
 
-**Validation rules (enforced by `shared/services/profile-service.ts`, server-side):**
-- `name`: trimmed; rejected if empty/whitespace-only; capped at 30 chars.
-- `relation`: must be a member of `FAMILY_RELATIONS`; otherwise rejected.
-- **Unknown fields are not persisted.** Only `name` and `relation` leave the normalization
-  step; ownership/timestamp fields submitted by the client are dropped.
-- **Ownership is never accepted from the client.** `ownerOpenid` is set server-side from the
-  trusted openid; any client-supplied value is ignored.
-- **Updates** cannot change `_id`, owner, or `createdAt`.
+## 5. Food and recipe entities
 
-**Deletion:** out of scope for M1. Create / list / update / select / set-default only.
-Archive/soft-delete will be designed later.
+### Food
 
-## 2b. IdempotencyKey — collection `idempotency_keys` (M1.1)
-| Field | Type | Req | Notes |
-|-------|------|-----|-------|
-| _id | string | auto | |
-| ownerOpenid | string | ✓ | owner; **server-derived only** |
-| operation | string | ✓ | logical operation, e.g. `create` (family profile) |
-| requestId | string | ✓ | client-generated high-entropy id, stable per edit session |
-| resultId | string | ✓ | `_id` of the entity created by the first request |
-| createdAt | number | ✓ | epoch ms |
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `name` | string | yes | |
+| `brand` | string | no | |
+| `category` | string | no | |
+| `per100g` | `NutritionValues` | yes | |
+| `source` | `FoodSource` | yes | `system`, `user`, or `recipe` |
+| `ownerOpenid` | string | no | only for saved user foods |
+| `isSaved` | boolean | yes | persisted saved-food flag |
+| `linkedFoodId` | string | no | reference back to a canonical system food when relevant |
+| `nutritionMeta` | `{ source, version }` | yes | nutrition provenance |
+| `createdAt` / `updatedAt` | number | yes | |
 
-**Purpose:** make write operations **best-effort** replay-safe. The tuple
-`(ownerOpenid, operation, requestId)` identifies one logical intent. A repeated request with
-the same tuple returns the originally created entity (`resultId`) instead of creating a
-duplicate; a *different* `requestId` is always treated as a new intent — even with identical
-payload. This is **best-effort request idempotency (尽力式请求幂等)**, not an atomic guarantee
-(see the race note above).
+### FoodSnapshot
 
-**Client contract (create profile):**
-```json
-{ "action": "create",
-  "requestId": "req_<time36>_<random>",
-  "profile": { "name": "爸爸", "relation": "parent" } }
-```
-The server scopes the key by the trusted `ownerOpenid` (never by any client-supplied owner),
-so two different users may safely reuse the same `requestId` string without collision.
+Stored inside meals and recipes for historical stability.
 
-## 3. Food — collection `foods` (M2)
-| Field | Type | Req | Notes |
-|-------|------|-----|-------|
-| _id | string | auto | |
-| name | string | ✓ | |
-| brand | string | | |
-| category | string | | |
-| per100g | NutritionPer100g | ✓ | nutrition density per 100 g |
-| source | FoodSource | ✓ | system / user / recipe |
-| ownerOpenid | string | | set for user-custom foods |
-| isSaved | boolean | ✓ | appears in "saved foods" |
-| createdAt / updatedAt | number | ✓ | |
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `foodId` | string | no | canonical id when available |
+| `linkedFoodId` | string | no | canonical system-food link for saved foods |
+| `name` | string | yes | |
+| `brand` | string | no | |
+| `category` | string | no | |
+| `per100g` | `NutritionValues` | yes | trusted nutrition basis |
+| `source` | `FoodSource` | yes | |
+| `nutritionMeta` | `{ source, version }` | yes | |
 
-## 4. PortionUnit — collection `portion_units` (M2)
-| Field | Type | Req | Notes |
-|-------|------|-----|-------|
-| _id | string | auto | |
-| label | string | ✓ | UI text, e.g. "碗", "个", "g" |
-| gramsPerUnit | number | ✓ | > 0; gram equivalent of one unit |
-| foodId | string | | if set, unit applies to that food only |
-| isDefault | boolean | | default unit for the food |
-| createdAt / updatedAt | number | ✓ | |
+### Recipe
 
-Generic units (`g`, `ml`) are always available (`GENERIC_PORTION_UNITS`).
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `ownerOpenid` | string | yes | trusted owner |
+| `name` | string | yes | |
+| `servings` | number | yes | > 0 |
+| `gramsPerServing` | number | yes | computed from ingredient grams |
+| `ingredients` | `RecipeIngredient[]` | yes | embedded snapshots |
+| `perServing` | `NutritionValues` | yes | computed by shared logic |
+| `createdAt` / `updatedAt` | number | yes | |
 
-## 5. Meal — collection `meals` (M3)
-| Field | Type | Req | Notes |
-|-------|------|-----|-------|
-| _id | string | auto | |
-| ownerOpenid | string | ✓ | owner |
-| familyProfileId | string | ✓ | which family member |
-| date | string | ✓ | YYYY-MM-DD (local day the meal belongs to) |
-| mealType | MealType | ✓ | |
-| items | MealItem[] | ✓ | embedded line items |
-| totals | NutritionValues | ✓ | sum of **confirmed** items (server-recomputed) |
-| photoFileId | string | | CloudBase storage fileID (M6) |
-| note | string | | |
-| source | RecordSource | ✓ | manual / ai_assisted |
-| createdAt / updatedAt | number | ✓ | |
+### RecipeIngredient
 
-Suggested index: (`ownerOpenid`, `familyProfileId`, `date`).
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `foodId` | string | no | |
+| `foodName` | string | yes | |
+| `foodSnapshot` | `FoodSnapshot` | yes | |
+| `grams` | number | yes | > 0 |
 
-## 6. MealItem (embedded in Meal) (M3)
-| Field | Type | Req | Notes |
-|-------|------|-----|-------|
-| foodId | string | | reference to Food (optional for ad-hoc) |
-| foodName | string | ✓ | denormalized snapshot for stable history |
-| quantity | number | ✓ | ≥ 0; number of portion units |
-| portionUnitId | string | | |
-| portionLabel | string | ✓ | snapshot, e.g. "碗" |
-| grams | number | ✓ | quantity × gramsPerUnit |
-| nutrition | NutritionValues | ✓ | scaled to `grams` |
-| source | ItemSource | ✓ | manual / ai_suggested |
-| confirmed | boolean | ✓ | AI items must be confirmed to count |
+## 6. Meal entities
 
-## 7. Recipe — collection `recipes` (M5)
-| Field | Type | Req | Notes |
-|-------|------|-----|-------|
-| _id | string | auto | |
-| ownerOpenid | string | ✓ | owner |
-| name | string | ✓ | |
-| servings | number | ✓ | > 0 |
-| ingredients | RecipeIngredient[] | ✓ | non-empty |
-| perServing | NutritionValues | ✓ | computed |
-| createdAt / updatedAt | number | ✓ | |
+### Meal
 
-**RecipeIngredient:** `foodId?`, `foodName` (req), `grams` (req, ≥ 0).
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `ownerOpenid` | string | yes | trusted owner |
+| `requestId` | string | yes | stable create replay key |
+| `familyProfileId` | string | yes | target family member |
+| `date` | string | yes | natural day |
+| `mealType` | `MealType` | yes | |
+| `items` | `MealItem[]` | yes | |
+| `totals` | `NutritionValues` | yes | server recomputed |
+| `photoFileId` | string | no | CloudBase Storage file id |
+| `note` | string | no | reserved, validated when present |
+| `aiAnalysisId` | string | no | advisory analysis reference |
+| `source` | `RecordSource` | yes | `manual` or `ai_assisted` |
+| `createdAt` / `updatedAt` | number | yes | |
 
-## 8. AiAnalysis — collection `ai_analyses` (M7)
-| Field | Type | Req | Notes |
-|-------|------|-----|-------|
-| _id | string | auto | |
-| ownerOpenid | string | ✓ | owner |
-| mealId | string | | linked meal, if any |
-| photoFileId | string | ✓ | analyzed photo |
-| provider | string | ✓ | "mock" / future |
-| status | AiAnalysisStatus | ✓ | pending / succeeded / failed |
-| suggestions | AiFoodSuggestion[] | ✓ | advisory only |
-| errorMessage | string | | on failure |
-| createdAt / updatedAt | number | ✓ | |
+### MealItem
 
-**AiFoodSuggestion:** `foodName` (req), `estimatedGrams` (req), `confidence` (0..1),
-`per100gGuess?`, `matchedFoodId?`.
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `foodId` | string | no | canonical food/recipe id when present |
+| `foodName` | string | yes | |
+| `foodSnapshot` | `FoodSnapshot` | yes | |
+| `quantity` | number | yes | number of selected units |
+| `portionUnitId` | string | no | reserved for persisted portion units |
+| `portionLabel` | string | yes | selected unit label snapshot |
+| `portionGramsPerUnit` | number | yes | selected grams-per-unit snapshot |
+| `grams` | number | yes | resolved total grams |
+| `nutrition` | `NutritionValues` | yes | item nutrition at save time |
+| `source` | `ItemSource` | yes | `manual` or `ai_suggested` |
+| `confirmed` | boolean | yes | only confirmed items persist into meals |
 
-> AI records are **advisory**. Final nutrition is always recomputed from confirmed
-> `MealItem`s by the shared nutrition layer, never taken directly from AI suggestions.
+## 7. AI entities
+
+### AiAnalysis
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `ownerOpenid` | string | yes | trusted owner |
+| `mealId` | string | no | reserved for later linkage |
+| `photoFileId` | string | yes | analyzed photo |
+| `provider` | string | yes | `mock`, `disabled`, or real provider name |
+| `status` | `AiAnalysisStatus` | yes | |
+| `suggestions` | `AiFoodSuggestion[]` | yes | advisory only |
+| `errorMessage` | string | no | truncated provider failure details |
+| `createdAt` / `updatedAt` | number | yes | |
+
+### AiFoodSuggestion
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `foodName` | string | yes | AI guess |
+| `estimatedGrams` | number | yes | > 0 |
+| `confidence` | number | yes | 0-1 |
+| `per100gGuess` | `NutritionValues` | no | advisory only |
+| `matchedFoodId` | string | no | canonical system-food match when available |
+
+## 8. Invariants
+
+1. `openid` and `ownerOpenid` are never trusted from the client.
+2. Meal totals are always recomputed server-side.
+3. AI suggestions never become nutrition facts until a user confirms them into a meal draft.
+4. Meals and recipes embed food snapshots so historical nutrition stays stable even if a saved
+   food changes later.
+5. Atomic meal create replay depends on the unique `meals(ownerOpenid, requestId)` index.

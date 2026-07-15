@@ -17,7 +17,7 @@ interface ProfileRow extends ClientProfile {
 interface ProfilesData {
   cloudReady: boolean;
   profiles: ProfileRow[];
-  activeFamilyProfileId?: string;
+  activeFamilyProfileId: string;
   submitting: boolean;
 }
 
@@ -32,7 +32,7 @@ Page<ProfilesData, WechatMiniprogram.Page.CustomOption>({
   data: {
     cloudReady: false,
     profiles: [],
-    activeFamilyProfileId: undefined,
+    activeFamilyProfileId: '',
     submitting: false,
   },
 
@@ -62,7 +62,7 @@ Page<ProfilesData, WechatMiniprogram.Page.CustomOption>({
     }));
     this.setData({
       profiles: rows,
-      activeFamilyProfileId: activeId,
+      activeFamilyProfileId: activeId || '',
     });
   },
 

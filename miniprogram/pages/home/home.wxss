@@ -1,34 +1,102 @@
-.totals {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 16rpx;
-}
-.metric {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-.num {
-  font-size: 40rpx;
-  font-weight: 600;
-  color: var(--color-primary);
-}
-.meal-slots {
-  display: flex;
-  gap: 24rpx;
-  margin-top: 16rpx;
-}
 .add-btn {
-  margin-top: 24rpx;
+  margin-top: 12rpx;
 }
+
 .manage-btn {
   margin-top: 16rpx;
+  border-radius: 12rpx;
 }
+
 .card-tap {
-  /* tap affordance for the active-profile card */
+  position: relative;
 }
-.btn-ghost {
-  background: #ffffff;
+
+.date-row,
+.history-head,
+.meal-top,
+.meal-actions,
+.history-links {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.date-display {
+  background: #f2f4f7;
+  border-radius: 12rpx;
+  padding: 12rpx 18rpx;
+}
+
+.totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20rpx;
+  margin-top: 18rpx;
+}
+
+.metric {
+  min-width: 140rpx;
+}
+
+.num {
+  display: block;
+  font-size: 38rpx;
+  font-weight: 700;
   color: var(--color-primary);
-  border: 1rpx solid var(--color-primary);
+}
+
+.meal-card {
+  margin-top: 18rpx;
+  padding: 20rpx;
+  border-radius: 12rpx;
+  background: #f7f9fb;
+}
+
+.meal-title {
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+.meal-sub,
+.meal-note {
+  margin-top: 6rpx;
+  font-size: 24rpx;
+  color: var(--color-text-weak);
+}
+
+.meal-actions {
+  margin-top: 14rpx;
+}
+
+.meal-badges {
+  display: flex;
+  gap: 10rpx;
+}
+
+.badge {
+  background: #e7edf6;
+  color: var(--color-primary);
+  border-radius: 999rpx;
+  padding: 4rpx 14rpx;
+  font-size: 22rpx;
+}
+
+.badge.ai {
+  background: #fef2d8;
+  color: #b56a00;
+}
+
+.action-link {
+  color: var(--color-primary);
+  font-size: 24rpx;
+}
+
+.action-link.danger {
+  color: #c0392b;
+}
+
+.error-text {
+  color: #c0392b;
+  margin-top: 12rpx;
+  font-size: 26rpx;
 }

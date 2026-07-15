@@ -6,9 +6,19 @@
  * resolution). No openid is ever stored or trusted from the client.
  */
 import { applyEnvOverrides } from './config/env';
-import { LOCAL_ENV_OVERRIDES } from './config/env.local';
 import { initCloud, isCloudReady } from './services/cloud';
 import { loadSession } from './services/session';
+
+function loadLocalEnvOverrides() {
+  try {
+    const local = require('./config/env.local') as {
+      LOCAL_ENV_OVERRIDES?: Parameters<typeof applyEnvOverrides>[0];
+    };
+    return local.LOCAL_ENV_OVERRIDES ?? {};
+  } catch {
+    return {};
+  }
+}
 
 App<IAppOption>({
   globalData: {
@@ -21,8 +31,9 @@ App<IAppOption>({
   },
 
   onLaunch() {
-    // Load the git-ignored local CloudBase environment ID before cloud init.
-    applyEnvOverrides(LOCAL_ENV_OVERRIDES);
+    // Load git-ignored local overrides when present; otherwise stay in the
+    // documented offline shell mode for a clean checkout.
+    applyEnvOverrides(loadLocalEnvOverrides());
 
     const ready = initCloud();
     this.globalData.cloudReady = ready && isCloudReady();

@@ -1,57 +1,70 @@
-/**
- * aiAnalyze cloud function (provider-neutral, mock-only for now).
- *
- * The provider is selected by the AI_PROVIDER environment variable configured
- * in the CloudBase console (NOT in this repo). Default is "mock", which uses no
- * external network and no secrets. Real providers are added later behind the
- * SAME interface; the client never changes.
- *
- * SECURITY: any real API key is read from process.env at runtime (configured in
- * the CloudBase function environment). It is never stored in source control.
- *
- * Output is ADVISORY ONLY: the client must let the user confirm/correct
- * suggestions, and final nutrition is always recomputed from confirmed input.
- */
 const cloud = require('wx-server-sdk');
+const { analyzeMealPhoto } = require('./lib/shared/services/ai-analysis-service');
+const { createRepository } = require('./cloudbase-repository');
+const { createMockProvider } = require('./providers/mock');
+const { createOpenAiCompatibleProvider } = require('./providers/openai-compatible');
+const { isServiceError } = require('./lib/shared/repository');
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 
-function analyzeWithMock(event) {
+function createFailedProvider(name, errorMessage) {
   return {
-    provider: 'mock',
-    status: 'succeeded',
-    suggestions: [
-      {
-        foodName: '米饭',
-        estimatedGrams: 150,
-        confidence: 0.62,
-        per100gGuess: { calories: 130, protein: 2.7, carb: 28, fat: 0.3 },
-      },
-      {
-        foodName: '西兰花',
-        estimatedGrams: 80,
-        confidence: 0.55,
-        per100gGuess: { calories: 34, protein: 2.8, carb: 7, fat: 0.4 },
-      },
-    ],
-    photoFileId: (event && event.photoFileId) || null,
+    name,
+    async analyze() {
+      return {
+        provider: name,
+        status: 'failed',
+        suggestions: [],
+        errorMessage,
+      };
+    },
   };
 }
 
-exports.main = async (event) => {
-  const provider = process.env.AI_PROVIDER || 'mock';
+function getProvider(env, repo) {
+  const providerName =
+    typeof env.AI_PROVIDER === 'string' && env.AI_PROVIDER.trim()
+      ? env.AI_PROVIDER.trim()
+      : 'mock';
 
-  // Only the mock provider is wired in this foundation task.
-  if (provider !== 'mock') {
-    // Fail safe: never break the app. Return an empty, failed result so the
-    // client falls back to the manual workflow.
-    return {
-      provider,
-      status: 'failed',
-      suggestions: [],
-      errorMessage: `provider "${provider}" not integrated yet`,
-    };
+  switch (providerName) {
+    case 'disabled':
+      return createFailedProvider('disabled', 'AI provider disabled');
+    case 'mock':
+      return createMockProvider();
+    case 'openai-compatible':
+      return createOpenAiCompatibleProvider(env, {
+        resolveImageUrl: (photoFileId) => repo.resolvePhotoTempUrl(photoFileId),
+      });
+    default:
+      return createFailedProvider(
+        providerName,
+        `Unsupported AI_PROVIDER value "${providerName}". Supported values: disabled, mock, openai-compatible.`,
+      );
   }
+}
 
-  return analyzeWithMock(event);
+function toErrorResult(error) {
+  if (isServiceError(error)) {
+    if (error.code === 'validation') {
+      return { ok: false, error: 'invalid_input', message: error.message };
+    }
+    return { ok: false, error: error.code, message: error.message };
+  }
+  console.error('[aiAnalyze] unexpected error', error);
+  return { ok: false, error: 'internal_error' };
+}
+
+exports.main = async (event) => {
+  const { OPENID } = cloud.getWXContext();
+  if (!OPENID) return { ok: false, error: 'no_openid_context' };
+
+  try {
+    const repo = createRepository();
+    const provider = getProvider(process.env, repo);
+    const result = await analyzeMealPhoto(repo, OPENID, event || {}, provider);
+    return { ok: true, ...result };
+  } catch (error) {
+    return toErrorResult(error);
+  }
 };

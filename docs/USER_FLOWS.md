@@ -1,130 +1,132 @@
-# User Flows — Family Meal Log MVP
+# User Flows - Family Meal Log MVP
 
-Notation: **Happy path** steps are numbered; **fallbacks** are called out inline. The manual
-path never depends on AI or network AI calls.
+Manual logging is the primary workflow. AI remains optional and advisory.
 
----
-
-## 1. First-time login (M1)
+## 1. First-time launch and profile resolution
 
 1. User opens the Mini Program.
-2. App launches; `cloud.initCloud()` runs. If no env ID is configured → **offline shell
-   mode** (manual UI still navigable; identity/profile features show a "未配置云环境" notice).
-3. When cloud is ready, the client calls the `login` cloud function.
-4. `login` derives the caller's openid **server-side** from the WeChat context, then upserts
-   the `users` document (idempotent).
-5. `login` returns **only** a non-sensitive internal user id and the server-side
-   `defaultFamilyProfileId`. **The openid is never returned to or stored on the client.**
-6. The client loads the account's `family_profiles` via `profileApi.list`.
-7. If the user has no profile yet → the home screen shows **first-profile onboarding**
-   prompting to create the first family member.
+2. App initializes cloud support.
+3. If cloud is unavailable, the app stays in offline shell mode.
+4. If cloud is ready, the client calls `login`.
+5. `login` derives `OPENID` server-side and upserts the user record.
+6. Client loads profiles from `profileApi.list`.
+7. Active profile resolves in this order:
+   - locally remembered `familyProfileId` if still valid,
+   - `users.defaultFamilyProfileId`,
+   - first available profile,
+   - onboarding when none exist.
 
-_Fallback:_ if login fails, the user sees a clear message; profile features stay disabled
-until identity is resolved. No writes are attempted with an unknown identity.
+## 2. Create or edit family members
 
-## 2. Profile selection & active profile (M1)
+Create:
 
-On app start, the active profile is resolved by priority (`resolveActiveProfile`):
-1. A locally remembered active profile id that still belongs to the returned list.
-2. The server-side `defaultFamilyProfileId`.
-3. The first available profile (list is createdAt ascending).
-4. If no profiles exist → first-profile onboarding.
+1. User enters name and relation.
+2. Client sends a stable `requestId`.
+3. `profileApi.create` normalizes input and sets ownership from trusted context.
+4. Repeated submits with the same `requestId` replay the original profile.
 
-Only the **profile id** is remembered locally (in `wx.storage`); ownership credentials are
-never stored on the device.
+Edit:
 
-- From home, tap the active-profile card (or "管理家庭成员") → `profiles` page.
-- User can **select** a profile → it becomes the active profile for this session (local only;
-  does not overwrite the server default unless the user explicitly sets default).
-- User can **set a profile as default** → `profileApi.setDefault` updates **only**
-  `users.defaultFamilyProfileId` on the server (no profile document is rewritten). The
-  per-profile `isDefault` badge shown in the list is computed by the server DTO as
-  `profile.id === defaultFamilyProfileId`, so exactly one profile appears as default and
-  switching the default never requires a multi-document write.
-- Home refreshes to show the selected member's name.
+1. User opens a profile.
+2. User changes editable fields.
+3. `profileApi.update` validates the patch and rejects cross-owner access.
 
-_Edge:_ no profiles yet → guided "创建第一个家庭成员" flow.
-_Edge:_ if the stored default id points at a removed/foreign profile, no profile is marked
-default (safe fallback) and active-profile resolution falls through to the first profile.
+## 3. Search food and preview nutrition
 
-## 3. Create / edit a family profile (M1)
+1. User opens add-meal.
+2. User searches bundled foods, saved foods, or recipe foods.
+3. User can also create a session-only ad-hoc food.
+4. User selects a portion unit and quantity.
+5. Shared logic computes grams and preview nutrition locally.
 
-**Create (from onboarding or profiles page):**
-1. `profile-edit` page (mode=create): enter **name** + choose **relation**. On page load the
-   client generates a stable `requestId` (`req_<time36>_<random>`) for this edit session.
-2. Client trims the name and does a fast local check; submit is disabled while in flight
-   (duplicate-tap guard).
-3. `profileApi.create` validates + normalizes server-side, sets `ownerOpenid` server-side,
-   and (for the first profile) auto-sets it as the default. The call carries the `requestId`;
-   the server enforces **best-effort request idempotency (尽力式请求幂等)** on
-   `(ownerOpenid, 'create', requestId)` — *client in-flight protection plus server-side
-   request replay handling* — a retried submit with the same `requestId` returns the originally
-   created profile instead of a duplicate. (This is **not** an atomic guarantee; see the race
-   note in DATA_MODEL.md / SECURITY.md §3.)
-4. On success the new profile becomes the active profile for this session; the list refreshes.
+This preview flow works even before a meal is saved.
 
-> **Duplicate names are allowed.** There is no name-based deduplication: the same owner may
-> intentionally create two profiles with the same `name` (e.g. two children called "宝宝").
-> Only accidental *double-submits of the same intent* are collapsed, via the `requestId` +
-> the in-flight UI guard — never by comparing names or relations.
+## 4. Manual meal create
 
-**Edit:**
-1. From `profiles`, tap 编辑 on a profile → `profile-edit` (mode=edit) pre-filled.
-2. Change name/relation → `profileApi.update` (ownership-checked; only `name`/`relation`
-   editable).
-3. On success the list refreshes.
+1. User chooses meal date and meal type.
+2. User adds one or more confirmed draft items.
+3. Optional: user uploads a meal photo.
+4. Optional: user opens the library to reuse a saved food or recipe.
+5. User taps save.
+6. Client sends:
+   - `requestId`
+   - `familyProfileId`
+   - `date`
+   - `mealType`
+   - confirmed items
+   - optional `photoFileId`
+   - optional `aiAnalysisId`
+7. `mealApi.create`:
+   - derives owner from trusted context,
+   - validates ownership,
+   - canonicalizes system foods,
+   - resolves recipe servings or saved foods,
+   - recomputes grams and nutrition,
+   - stores snapshots and trusted totals.
+8. Client reloads the saved meal through `mealApi.get`.
 
-**Validation feedback (client + server):**
-- Empty/whitespace name → "请输入姓名" (client) / `invalid_input` (server).
-- Invalid relation → caught by the picker (client) and rejected server-side.
-- Unknown/ownership fields in the payload → ignored server-side.
-- Duplicate name is **not** an error — it is a valid create (see the note above).
+## 5. Daily history, edit, and delete
 
-## 4. Manual meal logging (M3, planned; primary, always available)
+1. User opens home.
+2. User changes active date or active family member.
+3. Home calls `mealApi.list`.
+4. Page shows the returned meals plus aggregated day totals.
+5. User can edit a meal, which opens add-meal with `mealId`.
+6. User can delete a meal, which refreshes the current day totals immediately.
 
-1. Home → **添加一餐 (Add meal)**.
-2. Select **meal slot** (breakfast/lunch/dinner/snack).
-3. **Add food item**: pick from catalog / saved foods, or enter an ad-hoc food; choose a
-   **portion unit** and **quantity**.
-4. App converts portion → grams (`gramsFromPortion`) and computes item nutrition
-   (`scaleNutrition`).
-5. Repeat for more items; meal subtotal updates live (`sumNutrition`).
-6. Optional note.
-7. **Save** → `mealApi.create`. Server re-validates and **recomputes** `totals`.
-8. Return to home; daily totals for the active member update.
+## 6. Saved foods and recipes
 
-_Fallback:_ everything here works with AI disabled/unavailable.
+Saved foods:
 
-## 5. AI-assisted meal logging (M7, planned; optional, mock first)
+1. User selects a non-recipe food in add-meal.
+2. User taps “加入收藏”.
+3. `mealApi.saveFood` persists an owner-scoped saved food.
+4. Saved foods appear in the library and future add-meal search results.
 
-1. In Add-meal, user chooses **AI 识别 (photo)** (only when enabled).
-2. User picks/takes a photo → client uploads to CloudBase Storage → gets `fileID`.
-3. Client calls the AI adapter `analyzeMealPhoto({ photoFileId, ... })`.
-4. App shows suggestions, clearly labelled as estimates.
-5. User **confirms/corrects** each suggestion.
-6. Confirmed suggestions become normal `MealItem`s; nutrition recomputed by the shared layer.
-7. **Save** as in the manual flow.
+Recipes:
 
-_Fallback:_ if analysis fails → "请手动添加" and drop to the manual flow.
+1. User opens the library.
+2. User searches foods and adds ingredients with gram amounts.
+3. User sets the recipe name and number of servings.
+4. `mealApi.createRecipe` computes per-serving nutrition in the shared layer.
+5. Recipe foods appear in add-meal search and expose a default `1份` unit.
 
-## 6. Meal editing (M4, planned)
+## 7. Photo upload
 
-1. From daily history, tap a meal.
-2. Edit items; subtotal recomputes live.
-3. **Save** → `mealApi.update`; server re-validates and recomputes `totals`.
+1. User taps to choose a meal photo.
+2. Mini Program uploads it to CloudBase Storage.
+3. Client stores the returned `photoFileId` in local page state.
+4. Save/update requests include `photoFileId` when present.
 
-## 7. Meal deletion (M4, planned)
+Failure rule:
 
-1. Tap **删除 (Delete)**; confirm in a dialog.
-2. `mealApi.delete` removes the meal (owner-checked).
+- upload failure must not block manual meal save.
 
-> Note: family-profile **deletion** is explicitly out of scope for M1 (see ARCHITECTURE §11).
+## 8. AI suggestion flow
 
-## 8. Viewing daily history (M4, planned)
+1. User uploads a meal photo.
+2. User taps AI analysis.
+3. Client calls `aiAnalyze`.
+4. Cloud function selects a provider based on `AI_PROVIDER`.
+5. Shared AI logic stores an advisory `ai_analysis` record.
+6. Client renders suggestions separately from confirmed meal items.
+7. User can edit a suggested food name or grams before confirming it into the draft.
+8. Only confirmed items are sent to `mealApi.create` or `mealApi.update`.
 
-1. Home defaults to **today** for the active member (local `YYYY-MM-DD` day).
-2. User can change the **date** and/or **family member**.
-3. App queries `meals` by (`ownerOpenid`, `familyProfileId`, `date`).
-4. Meals grouped by slot; **daily totals** = sum of confirmed item nutrition.
+## 9. Provider modes
 
-_Empty state:_ "今天还没有记录" with a shortcut to add a meal.
+- `AI_PROVIDER=mock`
+  - deterministic mock suggestions.
+
+- `AI_PROVIDER=disabled`
+  - no suggestions, explicit failure message, manual entry continues.
+
+- any other configured provider name
+  - real provider path through the OpenAI-compatible adapter.
+
+## 10. Fallback behavior
+
+- Offline: local preview still works, cloud save does not pretend to succeed.
+- Missing active profile: save is blocked with a clear message.
+- Photo upload failure: user can still save the meal manually.
+- AI failure: user stays in manual flow with no nutrition corruption.
