@@ -1,52 +1,54 @@
 # Security and Deployment - Family Meal Log MVP
 
-This document records the current security posture through the M3 checkpoint.
+This document describes the current security posture for the completed MVP codebase.
 
 ## 1. Trust model
 
-- **Identity is server-side only.** Every cloud function derives the caller from
-  `cloud.getWXContext().OPENID`.
-- **Cloud functions are the only trusted write path.** The client does not write directly to
-  `users`, `family_profiles`, or `meals`.
-- **Authorization is server-enforced.** Owner scoping happens on the trusted boundary.
-- **Meal nutrition is server-trusted.** Client-supplied `totals`, `ownerOpenid`, and tampered
-  seed-food nutrition values are ignored or overwritten.
-- **No secrets belong in the repo or client bundle.**
+- `openid` is trusted only when derived from `cloud.getWXContext().OPENID`.
+- Cloud functions are the only trusted write path.
+- Shared logic is the only trusted source of validation and nutrition math.
+- Client-provided totals, owner identity, and canonical food nutrition are untrusted.
+- AI output is advisory only and never becomes final nutrition without explicit confirmation.
 
 ## 2. Required collections
 
 | Collection | Purpose | Written by |
 |------------|---------|------------|
-| `users` | one doc per WeChat user; stores `defaultFamilyProfileId` | `login`, `profileApi` |
+| `users` | trusted user records | `login`, `profileApi` |
 | `family_profiles` | owner-scoped family members | `profileApi` |
-| `idempotency_keys` | request replay for profile create | `profileApi` |
-| `meals` | persisted manual meal records with embedded snapshots | `mealApi` |
+| `idempotency_keys` | profile-create request replay | `profileApi` |
+| `meals` | owner-scoped meals | `mealApi` |
+| `foods` | owner-scoped saved foods | `mealApi` |
+| `recipes` | owner-scoped recipes | `mealApi` |
+| `ai_analyses` | advisory AI analyses | `aiAnalyze` |
 
 ## 3. Required indexes
 
-Create these in CloudBase:
+These must be created manually in CloudBase before relying on the full MVP:
 
 - `users.openid` unique
 - `family_profiles(ownerOpenid, createdAt)`
 - `idempotency_keys(ownerOpenid, operation, requestId)`
 - `meals(ownerOpenid, familyProfileId, date)`
+- `meals(ownerOpenid, requestId)` unique
+- `foods(ownerOpenid, updatedAt)`
+- `recipes(ownerOpenid, updatedAt)`
+- `ai_analyses(ownerOpenid, createdAt)`
 
-Recommended future hardening:
+### Atomic meal replay note
 
-- `meals(ownerOpenid, requestId)` unique for atomic meal replay
+The repository code now uses the correct duplicate-key recovery pattern for meal create:
 
-Current honesty note:
+1. attempt insert,
+2. if duplicate-key occurs, re-read by `(ownerOpenid, requestId)`,
+3. return the original meal.
 
-- profile replay is best-effort,
-- meal replay is also best-effort,
-- neither path is currently an atomic uniqueness guarantee.
+That is the strongest practical atomic replay path supported here, but it depends on the
+human-created unique index `meals(ownerOpenid, requestId)`.
 
-## 4. Recommended security rules
+## 4. Direct database rules
 
-Cloud functions run with admin privileges, so direct client access to user-owned collections
-should stay blocked.
-
-Recommended rule for `users`, `family_profiles`, `idempotency_keys`, and `meals`:
+For user-owned collections, recommended CloudBase database rules are:
 
 ```json
 {
@@ -55,42 +57,60 @@ Recommended rule for `users`, `family_profiles`, `idempotency_keys`, and `meals`
 }
 ```
 
-If temporary development-time read access is needed, keep writes disabled and scope reads to
-the owner only.
+That applies to:
 
-## 5. Direct client writes are forbidden
+- `users`
+- `family_profiles`
+- `idempotency_keys`
+- `meals`
+- `foods`
+- `recipes`
+- `ai_analyses`
 
-The Mini Program should not call `wx.cloud.database().collection(...).add/update/remove` for
-user-owned collections. Client access should stay routed through:
+The app is designed to work through cloud functions, not direct client database writes.
 
-- `login`
-- `profileApi`
-- `mealApi`
+## 5. Storage guidance
+
+- Meal photos are uploaded to CloudBase Storage and referenced by `photoFileId`.
+- Storage should remain non-public by default.
+- The client should not depend on public object URLs or embedded secrets.
+
+Exact manual storage verification steps are in [FINAL_HUMAN_RUNBOOK.md](./FINAL_HUMAN_RUNBOOK.md).
 
 ## 6. Response safety
 
-Client-facing responses must not expose:
+Client-safe responses must not expose:
 
 - `openid`
 - `ownerOpenid`
 - `requestId`
-- secrets or env ids
+- CloudBase environment ids
+- provider secrets
 
-Current M3 rule:
+## 7. AI provider secrets
 
-- `mealApi` returns a client-safe meal DTO without `ownerOpenid` or `requestId`.
+Allowed cloud-function environment variables:
 
-## 7. Secrets and environment safety
+- `AI_PROVIDER`
+- `AI_API_URL`
+- `AI_API_KEY`
+- `AI_MODEL`
+- `AI_TIMEOUT_MS`
 
-- Keep real CloudBase env IDs out of tracked files.
-- Keep `project.private.config.json` untracked.
-- Keep `.env` and local override files untracked.
-- Store any future AI credentials only in cloud-function environment variables.
+Rules:
 
-## 8. Deploy flow
+- never commit the real values,
+- never surface them to the Mini Program,
+- never log them in docs, commit messages, or validation fixtures.
 
-1. Run `npm run build:shared`.
-2. Upload changed cloud functions from WeChat DevTools.
-3. Build or preview the Mini Program against the intended environment.
+## 8. Deployment guardrails
 
-Never claim deployment succeeded unless it was actually performed.
+Before deployment:
+
+1. run `npm run build:shared`,
+2. run `npm run validate`,
+3. upload only the intended cloud functions,
+4. verify in WeChat DevTools against the target environment.
+
+Never claim deployment, storage configuration, or manual verification succeeded unless a human
+actually performed it.

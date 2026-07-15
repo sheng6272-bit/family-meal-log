@@ -1,135 +1,135 @@
-# Family Meal Log MVP (家庭餐食记录)
+# Family Meal Log MVP
 
-A family-oriented food-intake logging **WeChat Mini Program** built on **Tencent CloudBase**.
-This repository currently includes the verified milestones **M0 foundation**, **M1 identity and
-family profiles**, **M2 food catalog and portion units**, and **M3 manual meal logging**.
-The add-meal page now supports multi-item drafting plus server-validated **save and reload** for
-manual meals. Daily history/edit/delete (M4) and later milestones are still pending.
+A native WeChat Mini Program for family meal logging, built with TypeScript strict mode and
+Tencent CloudBase.
 
----
+The MVP in this branch is complete through **M8**:
 
-## 1. Project purpose
+- trusted WeChat identity and family-member profiles,
+- bundled food catalog plus session ad-hoc foods,
+- manual multi-item meal logging,
+- daily history with edit and delete,
+- saved foods and reusable recipes,
+- meal photo upload to CloudBase Storage,
+- mock AI suggestion flow with explicit user confirmation,
+- real-provider implementation behind the same provider-neutral AI interface.
 
-Help a household record what each family member eats, with reliable **manual** entry of foods
-and portions, automatic **calorie and macronutrient** calculation, and a simple **daily intake**
-view. Photo-based AI food recognition is planned for later milestones; the app must remain
-**fully usable without any AI service**.
+Manual logging remains the primary path. AI is optional, advisory, and never the final source
+of nutrition values.
 
-## 2. Current MVP scope
+## Current scope
 
 Implemented now:
 
-1. WeChat user identity.
-2. Multiple family-member profiles.
-3. Food catalog search with bundled seed foods.
-4. Generic and food-specific portion units.
-5. Single-item live grams + nutrition preview.
-6. Manual multi-item meal drafting.
-7. Manual meal save and immediate reload through `mealApi`.
-8. Shared nutrition logic enforced on both client and server.
+1. `login`, `profileApi`, `mealApi`, and `aiAnalyze` cloud functions.
+2. Owner-scoped family profiles with default-profile resolution.
+3. Food search, portion units, grams conversion, and live nutrition preview.
+4. Meal create, list, get, update, and delete with server-side recomputation.
+5. Saved foods and recipe management.
+6. Photo upload and `photoFileId` persistence on meals.
+7. Mock AI and real AI provider support selected by `AI_PROVIDER`.
+8. A full automated repository gate in `npm run validate`.
 
-Still out of scope in the current branch:
+Still human-only:
 
-1. Daily history browsing, edit, and delete.
-2. Saved foods and recipes.
-3. Photo upload.
-4. AI suggestions and real AI providers.
-5. Payments, social features, or medical advice.
+1. CloudBase collection/index creation.
+2. Cloud function deployment.
+3. DevTools and phone verification.
+4. Real provider secret configuration.
+5. Draft PR creation if GitHub integration permissions remain restricted.
 
-## 3. Required software
+See [docs/FINAL_HUMAN_RUNBOOK.md](./docs/FINAL_HUMAN_RUNBOOK.md) for the ordered final session.
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| WeChat DevTools | latest stable | Build/run the Mini Program, deploy cloud functions |
-| Node.js | >= 18 | Tooling, type-check, validation script |
-| npm | >= 9 | Dependency management |
-| Tencent CloudBase environment | 1 dev + 1 prod | Database, storage, cloud functions |
-| Git | recent | Version control |
-
-## 4. Local setup
+## Local setup
 
 ```bash
-# 1. Install dependencies from the tracked lockfile
 npm ci
-
-# 2. Configure your WeChat appid locally (never commit the real one)
-cp project.private.config.example.json project.private.config.json
-
-# 3. Configure CloudBase environment IDs locally (never commit them)
-cp miniprogram/config/env.local.example.ts miniprogram/config/env.local.ts
-
-# 4. Run the repository gate
 npm run validate
 ```
 
-Then open the project folder in **WeChat DevTools**. The Mini Program runs in an **offline shell
-mode** until a CloudBase env ID is configured; bundled food search and preview still work there.
+Then open the repository in WeChat DevTools.
 
-## 5. Validation
+Important local-only config:
+
+- `project.private.config.json`
+- `miniprogram/config/env.local.ts`
+- cloud-function environment variables for real AI
+
+None of those files or secrets should be committed.
+
+## Validation
 
 ```bash
-npm run validate
 npm run typecheck
+npm run build:shared
 npm test
+npm run validate
+git diff --check
 ```
 
-`scripts/validate.mjs` checks structural consistency, secret hygiene, and the shared runtime
-packaging. It also exercises:
+Current automated baseline on `feature/mvp-completion`:
 
-- **M1** identity/profile behavior: idempotent login, owner isolation, default persistence.
-- **M2** food-catalog behavior: seed integrity, search, portion units, ad-hoc foods, preview.
-- **M3** meal behavior: server recomputation, owner scoping, save/reload, request-id replay,
-  and client-safe DTOs.
+- `npm run validate` -> **142 passed, 0 failed**
 
-`scripts/build-shared.mjs` compiles `shared/` and copies the runtime into cloud functions and
-`miniprogram/lib/shared/`. Run it before deploying cloud functions or packaging the Mini Program.
+## Milestones
 
-## 6. Milestones
+| Milestone | Status | Summary |
+|-----------|--------|---------|
+| M0 | done | repository shell, docs, shared runtime, validation gate |
+| M1 | done | trusted identity, family profiles, default-profile flow |
+| M2 | done | food catalog, portion units, live preview |
+| M3 | done | manual meal logging with trusted persistence |
+| M4 | done | daily history, edit, delete |
+| M5 | done | saved foods and recipes |
+| M6 | done | meal photo upload |
+| M7 | done | mock AI suggestion and confirmation flow |
+| M8 | done | real provider behind the neutral AI interface |
 
-| # | Milestone | Status | Outcome |
-|---|-----------|--------|---------|
-| M0 | Foundation and shell | done | Repo structure, docs, shared layer, validation gate |
-| M1 | Identity and family profiles | done | Server-trusted login, profile UI, active-profile state |
-| M2 | Food catalog and portion units | done | Seed + ad-hoc foods, units, gram conversion, live preview |
-| M3 | Manual meal logging | done | Multi-item draft meal, date/meal type, server-validated save/reload |
-| M4 | Daily history | planned | Browse meals by day, edit, delete |
-| M5 | Saved foods and recipes | planned | Reusable foods and simple family recipes |
-| M6 | Photo upload | planned | CloudBase storage upload workflow |
-| M7 | AI suggestions (mock) | planned | Optional AI flow with confirm/correct UX |
-| M8 | Real AI provider | planned | Swap mock for a real provider behind the same interface |
+Authoritative milestone scope is in [docs/DEVELOPMENT_PLAN.md](./docs/DEVELOPMENT_PLAN.md).
 
-Detailed scope and acceptance criteria live in
-[`docs/DEVELOPMENT_PLAN.md`](./docs/DEVELOPMENT_PLAN.md).
-
-## 7. Repository layout
+## Repository layout
 
 ```text
-.
-├── README.md
-├── docs/                     # product and engineering docs
-├── miniprogram/              # WeChat Mini Program (TypeScript)
-│   ├── config/               # environment config (no secrets) and labels
-│   ├── pages/                # home, add-meal, profiles, profile-edit
-│   ├── services/             # cloud wrapper, auth, profile, session, food-catalog, meal, AI adapter
-│   └── lib/shared/           # GENERATED shared runtime (git-ignored)
-├── cloudfunctions/           # CloudBase cloud functions
-│   ├── login/                # M1 server-trusted identity upsert
-│   ├── profileApi/           # M1 list/create/update/setDefault/get
-│   ├── mealApi/              # M3 create/get; M4 adds update/delete/list
-│   ├── aiAnalyze/            # mock AI provider scaffold
-│   └── <fn>/lib/shared/      # GENERATED shared runtime (git-ignored)
-├── shared/                   # source of truth for schemas, validation, nutrition, services
-│   └── data/system-foods.ts  # bundled M2 seed catalog + portion units
-├── scripts/                  # build-shared.mjs and validate.mjs
-├── typings/                  # ambient TypeScript typings
-└── project.config.json
+miniprogram/                 Native WeChat Mini Program
+  pages/                     UI pages only
+  services/                  client service boundary
+  lib/shared/                generated shared runtime (git-ignored)
+
+cloudfunctions/              CloudBase trusted boundary
+  login/
+  profileApi/
+  mealApi/
+  aiAnalyze/
+
+shared/                      single source of truth
+  data/system-foods.ts
+  nutrition.ts
+  validation.ts
+  repository*.ts
+  services/
+
+scripts/
+  build-shared.mjs
+  validate.mjs
+
+docs/
+  ARCHITECTURE.md
+  DATA_MODEL.md
+  USER_FLOWS.md
+  SECURITY.md
+  DEVELOPMENT_PLAN.md
+  MANUAL_TEST_CHECKLIST.md
+  FINAL_HUMAN_RUNBOOK.md
+  CODEX_HANDOFF.md
 ```
 
-## 8. Documentation index
+## Documentation index
 
-- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md): app structure, trusted boundaries, packaging.
-- [`docs/DATA_MODEL.md`](./docs/DATA_MODEL.md): entities, snapshots, indexes.
-- [`docs/USER_FLOWS.md`](./docs/USER_FLOWS.md): current user journeys.
-- [`docs/DEVELOPMENT_PLAN.md`](./docs/DEVELOPMENT_PLAN.md): milestone scope and acceptance.
-- [`docs/SECURITY.md`](./docs/SECURITY.md): collections, indexes, security posture.
-- [`docs/MANUAL_TEST_CHECKLIST.md`](./docs/MANUAL_TEST_CHECKLIST.md): DevTools/phone checks.
+- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
+- [docs/DATA_MODEL.md](./docs/DATA_MODEL.md)
+- [docs/USER_FLOWS.md](./docs/USER_FLOWS.md)
+- [docs/SECURITY.md](./docs/SECURITY.md)
+- [docs/DEVELOPMENT_PLAN.md](./docs/DEVELOPMENT_PLAN.md)
+- [docs/MANUAL_TEST_CHECKLIST.md](./docs/MANUAL_TEST_CHECKLIST.md)
+- [docs/FINAL_HUMAN_RUNBOOK.md](./docs/FINAL_HUMAN_RUNBOOK.md)
+- [docs/CODEX_HANDOFF.md](./docs/CODEX_HANDOFF.md)

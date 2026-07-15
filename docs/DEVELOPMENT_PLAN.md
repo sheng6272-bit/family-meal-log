@@ -1,163 +1,183 @@
 # Development Plan - Family Meal Log MVP
 
-Small, verifiable milestones. Manual logging is prioritized first; AI remains optional and
-advisory.
+This file is the authoritative milestone scope reference for the repository.
 
-Legend: `done` / `planned`
+Legend: `done`
 
 ---
 
 ## M0 - Foundation and shell `done`
 
-**Goal:** a clean repository foundation and a compilable Mini Program shell.
+**Goal:** establish a clean Mini Program repository with a shared domain layer and a validation
+gate.
 
-**Scope:** repo structure, README + docs, shared schemas/validation/nutrition, config
-templates, minimal app shell, placeholder cloud functions, validation command.
+**Delivered scope:**
 
-**Acceptance:**
+- repository structure and baseline docs,
+- shared types, validation, and nutrition helpers,
+- TypeScript strict configuration,
+- `scripts/build-shared.mjs`,
+- `scripts/validate.mjs`,
+- offline-capable Mini Program shell.
 
-- `npm run validate` passes.
-- No secrets, env IDs, or appid are committed.
-- Home and add-meal compile and navigate; offline shell mode works.
+**Acceptance (verified by `npm run validate`):**
+
+- repo structure is complete,
+- no committed env ids or secrets,
+- shared runtime builds successfully.
 
 ## M1 - Identity and family profiles `done`
 
-**Goal:** real WeChat identity and family-member management under the single-owner model.
+**Goal:** trusted WeChat identity and owner-scoped family-member management.
 
-**Scope:** `login` upserts `users`; `profileApi` list/create/update/setDefault/get; first-run
-profile onboarding; profile management UI; active-profile resolution and local persistence;
-shared-runtime packaging into cloud functions; client-safe identity.
+**Delivered scope:**
+
+- `login` upserts users from server-derived `OPENID`,
+- `profileApi` list/create/update/setDefault/get,
+- active-profile resolution and local profile-id persistence,
+- first-profile onboarding,
+- owner isolation and client-safe DTOs.
 
 **Acceptance (verified by `npm run validate`):**
 
-- Login is server-derived and idempotent.
-- First profile becomes default automatically.
-- Profile names are trimmed; empty names and invalid relations are rejected.
-- Unknown fields and client-supplied `ownerOpenid` are ignored.
-- Access is owner-scoped.
-- Default persistence and stale-local fallback work.
+- login is idempotent,
+- first profile becomes default,
+- profile replay via `requestId` works,
+- cross-owner access is rejected.
 
 ## M2 - Food catalog and portion units `done`
 
-**Goal:** foods and portion-to-gram conversion in the UI.
+**Goal:** food search and portion-driven nutrition preview.
 
-**Scope:**
+**Delivered scope:**
 
-- Curated bundled system food seed dataset.
-- Food search and selection.
-- Session-only ad-hoc foods.
-- Generic and food-specific portion units.
-- Portion-to-gram conversion.
-- Single-item live nutrition preview via the shared layer.
-- Nutrition provenance metadata on foods.
-
-**Explicitly excluded from M2:**
-
-- Meal saving or `mealApi` CRUD.
-- Daily history.
-- Recipes.
-- Photo upload.
-- AI recognition.
+- bundled seed foods,
+- session-only ad-hoc foods,
+- generic and food-specific portion units,
+- portion-to-gram conversion,
+- single-item nutrition preview through the shared layer,
+- nutrition provenance metadata.
 
 **Acceptance (verified by `npm run validate`):**
 
-- Selecting a food + unit + quantity shows correct grams and calories/macros.
-- Invalid inputs are rejected with clear Chinese messages.
-- Ad-hoc foods are usable immediately and are not written to CloudBase.
-- Nutrition provenance is present on both seed and ad-hoc foods.
-- Food-catalog logic stays cloud-free and AI-free.
+- search works across names/categories,
+- preview nutrition is deterministic,
+- invalid ad-hoc input is rejected,
+- client food-catalog logic stays cloud-free.
 
 ## M3 - Manual meal logging `done`
 
-**Goal:** the primary end-to-end workflow - combine foods into a meal and persist it.
+**Goal:** persist a trusted manual meal record.
 
-**Scope:**
+**Delivered scope:**
 
-- Multiple food items per meal.
-- Meal type and date.
-- Server-side validation and nutrition recomputation.
-- `mealApi.create` and `mealApi.get`.
-- Stable client `requestId` replay for retries.
-- Historical `foodSnapshot` and `portionGramsPerUnit` persistence.
-
-**Explicitly excluded from M3:**
-
-- Daily history queries.
-- Edit and delete.
-- Saved foods.
-- Recipes.
-- Photo upload.
-- AI suggestions/providers.
+- multi-item draft meals,
+- meal date and type,
+- `mealApi.create` and `mealApi.get`,
+- server-side validation and nutrition recomputation,
+- stored `foodSnapshot` and `portionGramsPerUnit`,
+- request replay through `requestId`.
 
 **Acceptance (verified by `npm run validate`):**
 
-- A meal saves and reloads identically.
-- `totals` equal the confirmed-item sum.
-- Server overwrites client-supplied totals and owner identity.
-- Repeated `requestId` returns the original meal; a new `requestId` creates a new meal.
-- Works with AI disabled.
+- meals save and reload consistently,
+- server ignores client totals and owner identity,
+- repeated `requestId` replays the original meal,
+- atomic hardening path is documented around `meals(ownerOpenid, requestId)` unique indexing.
 
-## M4 - Daily history, edit, and delete `planned`
+## M4 - Daily history, edit, and delete `done`
 
-**Goal:** review and maintain records.
+**Goal:** review and maintain meal records by day.
 
-**Scope:** query meals by `(owner, profile, date)`, group by slot, show per-day totals, and
-support edit/delete flows.
+**Delivered scope:**
 
-**Acceptance:**
+- `mealApi.list`, `mealApi.update`, and `mealApi.delete`,
+- home-page daily totals and history,
+- edit navigation back into add-meal,
+- delete flow with refreshed day totals.
 
-- Changing date/member shows the correct meals and totals.
-- Edit and delete update daily totals correctly.
+**Acceptance (verified by `npm run validate`):**
 
-## M5 - Saved foods and recipes `planned`
+- list queries are scoped by owner, profile, and date,
+- updates move meals across days correctly,
+- deletes remove meals from daily history and totals.
 
-**Goal:** reuse and simple recipes.
+## M5 - Saved foods and recipes `done`
 
-**Scope:** mark foods as saved, manage saved list, define recipes, and add recipe servings to
-meals.
+**Goal:** make repeated logging faster through reusable foods and simple recipes.
 
-**Acceptance:**
+**Delivered scope:**
 
-- A saved food is reusable across meals.
-- Recipe per-serving nutrition equals ingredient sum divided by servings.
+- saved-food CRUD,
+- recipe CRUD,
+- recipe per-serving nutrition calculation in the shared layer,
+- recipe servings available as meal items,
+- library page for saved foods and recipes.
 
-## M6 - Photo upload `planned`
+**Acceptance (verified by `npm run validate`):**
 
-**Goal:** attach a photo to a meal.
+- duplicate save requests reuse the same saved food,
+- recipes compute per-serving nutrition from ingredient totals,
+- recipe servings can be logged into meals.
 
-**Scope:** capture/select photo, upload to CloudBase Storage, store `photoFileId`, and keep
-owner-only access.
+## M6 - Photo upload `done`
 
-**Acceptance:**
+**Goal:** attach an optional photo to a meal record.
 
-- A meal can carry a photo.
-- Upload failure does not block manual save.
+**Delivered scope:**
 
-## M7 - AI suggestions (mock) `planned`
+- choose image from device,
+- upload to CloudBase Storage,
+- persist `photoFileId` on meals,
+- allow photo removal on edit,
+- keep manual save working when upload fails.
 
-**Goal:** end-to-end AI-assisted flow with a mock provider first.
+**Acceptance (verified by `npm run validate` for automatable scope):**
 
-**Scope:** `aiAnalyze` mock suggestions, confirm/correct UX, advisory persistence, recompute
-nutrition from confirmed items only.
+- meals can store and clear `photoFileId`,
+- photo-aware meals still validate,
+- manual save works without a photo.
 
-**Acceptance:**
+Manual storage-permission verification remains in the human runbook.
 
-- Suggestions never count until confirmed.
-- AI failure degrades cleanly to manual entry.
-- Final nutrition always comes from the shared layer.
+## M7 - AI suggestions (mock) `done`
 
-## M8 - Real AI provider `planned`
+**Goal:** support an end-to-end AI-assisted but still human-confirmed workflow.
 
-**Goal:** swap mock for a real provider behind the same interface.
+**Delivered scope:**
 
-**Scope:** concrete provider chosen by `AI_PROVIDER`; secrets only in cloud-function env vars;
-timeouts and graceful failure.
+- `aiAnalyze` mock provider,
+- advisory `ai_analyses` persistence,
+- add-meal AI suggestion review/edit/confirm flow,
+- `aiAnalysisId` linkage on meals,
+- `ai_assisted` meal source when confirmed AI items are saved.
 
-**Acceptance:**
+**Acceptance (verified by `npm run validate` for automatable scope):**
 
-- Switching providers requires no client change.
-- No secret appears in the repo or client bundle.
-- Provider errors degrade to manual/mock.
+- AI analyses persist separately from meals,
+- suggestions do not create meals until confirmed,
+- confirmed AI items still use shared nutrition recomputation,
+- provider failure degrades to a failed advisory result.
+
+## M8 - Real AI provider `done`
+
+**Goal:** place a real provider behind the same interface without exposing secrets to the client.
+
+**Delivered scope:**
+
+- provider selection by `AI_PROVIDER`,
+- explicit `AI_PROVIDER=disabled` mode,
+- `AI_API_URL`, `AI_API_KEY`, `AI_MODEL`, and `AI_TIMEOUT_MS` cloud env configuration,
+- timeout normalization and malformed-response handling,
+- mocked transport tests for the real-provider adapter.
+
+**Acceptance (verified by `npm run validate` for automatable scope):**
+
+- switching providers requires no client change,
+- client files do not reference provider secrets,
+- missing config and malformed responses fail safely.
+
+Real-secret setup and live provider verification remain in the human runbook.
 
 ---
 
@@ -165,7 +185,7 @@ timeouts and graceful failure.
 
 - TypeScript strict passes.
 - `npm run validate` is green.
-- Shared validation/nutrition remain the single source of truth.
-- No secrets or generated files are committed.
-- Docs and manual checklist are updated for touched behavior.
-- Any unexecuted device checks are recorded as pending manual verification.
+- shared validation and nutrition remain the single source of truth.
+- owner isolation is enforced server-side.
+- docs and manual test artifacts are updated.
+- unexecuted device/deployment steps remain explicitly marked as pending manual verification.

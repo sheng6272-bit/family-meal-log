@@ -1,153 +1,170 @@
 # Architecture - Family Meal Log MVP
 
-> Status: **M0 done**, **M1 done**, **M2 done**, **M3 done**. Current verified
-> `npm run validate` baseline: **176 passed, 0 failed**.
+> Current automated baseline on `feature/mvp-completion`: `npm run validate` -> **142 passed, 0 failed**
 
-## 1. High-level overview
+## 1. System overview
 
 ```text
-WeChat Mini Program
-  pages/              thin UI layer
-  services/           cloud wrapper + client adapters
-  lib/shared/         generated runtime copy
-          |
-          v
-Tencent CloudBase
-  login               server-trusted identity
-  profileApi          family profile management
-  mealApi             manual meal create/get
-  aiAnalyze           mock/future AI adapter
-          |
-          v
+Mini Program pages
+  home                 daily totals + history
+  add-meal             create/edit meals, photo, AI suggestion review
+  library              saved foods + recipes
+  profiles/*           family-member management
+        |
+        v
+Mini Program services
+  cloud.ts             only wx.cloud touchpoint
+  auth/profile/session
+  food-catalog/meal/library
+  ai/ai-adapter
+        |
+        v
+Cloud functions
+  login
+  profileApi
+  mealApi
+  aiAnalyze
+        |
+        v
 shared/
-  types, validation, nutrition, services
-  single source of truth for domain rules
+  types, validation, nutrition, repositories, services
 ```
 
-Two trust boundaries matter:
+Two boundaries matter most:
 
-- **Nutrition boundary:** final grams and nutrition values come from the shared layer.
-- **Identity boundary:** `openid` comes only from the server-side WeChat context.
+- **Identity boundary:** `openid` is derived only from `cloud.getWXContext().OPENID`.
+- **Nutrition boundary:** final grams and nutrition values come only from shared logic executed
+  at the trusted boundary.
 
 ## 2. Frontend architecture
 
-- Native WeChat Mini Program, TypeScript strict mode.
-- Pages stay a **thin view layer**: local state, user events, rendering.
-- Services are the client boundary:
-  - `cloud.ts`: the only `wx.cloud` touchpoint.
-  - `auth.ts`: wraps `login`.
-  - `profile.ts`: wraps `profileApi`.
-  - `session.ts`: resolves the active profile and persists only the profile id locally.
-  - `food-catalog.ts`: shared wrapper for seed search, ad-hoc foods, units, and preview.
-  - `meal.ts`: wraps `mealApi.create` / `mealApi.get`, generates `requestId`, maps errors.
-  - `ai/*`: optional AI adapter path, still non-essential to manual logging.
+The Mini Program stays framework-free and uses a thin-page pattern:
 
-Current page roles:
+- `pages/*` hold view state, event handlers, and navigation only.
+- `services/cloud.ts` is the single client entry point for `wx.cloud.callFunction`.
+- `services/session.ts` stores only the active `familyProfileId` locally.
+- `services/food-catalog.ts` wraps the generated shared runtime for search, units, and preview.
+- `services/meal.ts` wraps meal CRUD and `requestId` generation.
+- `services/library.ts` wraps saved-food and recipe operations.
+- `services/ai/ai-adapter.ts` calls the cloud AI flow and falls back to local mock behavior only
+  when the cloud call itself fails.
 
-- `home`: active profile and entry points.
-- `profiles` / `profile-edit`: M1 profile management.
-- `add-meal`: M3 manual meal workflow. The page:
-  - shows the active profile, date, and meal type,
-  - searches bundled foods or defines ad-hoc foods,
-  - previews one item at a time through shared logic,
-  - builds a multi-item local draft meal,
-  - saves through `mealApi.create`,
-  - reloads through `mealApi.get`,
-  - blocks save cleanly when offline or no active profile is selected.
+Page responsibilities:
 
-## 3. Shared runtime packaging
+- `home`: shows active profile, daily totals, day history, edit/delete entry points.
+- `add-meal`: manual drafting, photo upload, optional AI suggestion confirmation, save/update/delete.
+- `library`: saved-food list plus recipe create/edit/delete.
+- `profiles` and `profile-edit`: family-member lifecycle.
 
-`shared/` is the only implementation of validation, nutrition math, and meal/profile logic.
+## 3. Shared layer
+
+`shared/` is the source of truth for:
+
+- domain types,
+- validation,
+- nutrition math,
+- portion resolution,
+- profile services,
+- meal services,
+- saved-food services,
+- recipe services,
+- AI analysis persistence and normalization.
+
+Key rule: client code may preview through the shared runtime, but cloud functions must
+re-validate untrusted input and recompute trusted values before persistence.
+
+## 4. Shared runtime packaging
 
 `npm run build:shared`:
 
-1. Compiles `shared/` to CommonJS in `shared/dist/`.
-2. Copies the runtime into each cloud function under `cloudfunctions/*/lib/shared/`.
-3. Copies the same runtime into `miniprogram/lib/shared/`.
+1. compiles `shared/` into `shared/dist/`,
+2. copies the runtime into `cloudfunctions/*/lib/shared/`,
+3. copies the runtime into `miniprogram/lib/shared/`.
 
-Properties:
+The copies are generated artifacts, are git-ignored, and must never be edited manually.
 
-- No symlinks.
-- Generated artifacts stay git-ignored.
-- Cloud functions and the Mini Program run the same domain logic.
+## 5. Cloud function roles
 
-## 4. CloudBase architecture
+- `login`
+  - trusted user upsert,
+  - returns client-safe identity metadata only.
 
-Cloud functions are the trusted server boundary.
+- `profileApi`
+  - owner-scoped profile list/create/update/setDefault/get,
+  - request replay for profile creation through `idempotency_keys`.
 
-- `login` derives identity from `cloud.getWXContext().OPENID`.
-- `profileApi` manages owner-scoped family profiles.
-- `mealApi` handles M3 meal create/get with shared validation and server recomputation.
-- `aiAnalyze` remains mock-first and optional.
+- `mealApi`
+  - meal create/get/list/update/delete,
+  - saved-food and recipe CRUD,
+  - canonical system-food resolution,
+  - owner-scoped reads and writes,
+  - atomic hardening path for meal create replay via unique `(ownerOpenid, requestId)` index.
 
-The client is **not trusted** for:
+- `aiAnalyze`
+  - persists advisory AI analyses,
+  - selects provider by `AI_PROVIDER`,
+  - supports `mock`, `disabled`, and real provider modes.
 
-- `openid`
-- final `totals`
-- system-food nutrition values
-- ownership of profiles or meals
+## 6. Data flow highlights
 
-## 5. Collections
+### Manual meal save
 
-| Collection | Purpose | Current status |
-|------------|---------|----------------|
-| `users` | one record per WeChat user; stores `defaultFamilyProfileId` | M1 |
-| `family_profiles` | owner-scoped family members | M1 |
-| `idempotency_keys` | request replay for profile create | M1 |
-| `foods` | future reusable foods | later |
-| `portion_units` | future persisted units if needed | later |
-| `meals` | owner-scoped meal records with embedded snapshots | M3 |
-| `recipes` | recipe reuse | M5 |
-| `ai_analyses` | advisory AI records | M7 |
+1. Client drafts items locally.
+2. Client sends `requestId`, profile, date, meal type, optional `photoFileId`, optional `aiAnalysisId`, and items.
+3. `mealApi` resolves ownership from server context.
+4. Shared meal service canonicalizes foods, resolves portion units, recomputes grams and nutrition, and stores snapshots.
+5. Client reloads the trusted saved meal.
 
-## 6. Current meal design (M3)
+### Saved foods and recipes
 
-Meal save is intentionally narrow in this checkpoint:
+1. Client calls `mealApi.listLibrary`.
+2. Shared services return owner-scoped saved foods and recipes.
+3. Recipe nutrition is computed from ingredient snapshots, not copied from the client.
 
-- `mealApi.create` accepts draft meal input from the client.
-- The server validates the target family profile belongs to the caller.
-- System foods are canonicalized from `shared/data/system-foods.ts`.
-- Ad-hoc foods are normalized through the shared ad-hoc food service.
-- Portion labels are resolved by shared portion logic.
-- Each stored item snapshots:
-  - `foodSnapshot`
-  - `portionGramsPerUnit`
-  - `grams`
-  - `nutrition`
-- The server recomputes `totals` from confirmed items.
-- `mealApi.get` reloads the trusted stored record immediately after create.
+### AI suggestion flow
 
-Client-safe DTO rule:
+1. Client uploads an optional meal photo.
+2. Client calls `aiAnalyze`.
+3. Shared AI service persists an advisory `ai_analysis` record.
+4. Suggestions stay outside meals until the user explicitly confirms them into the draft.
+5. Final meal nutrition still comes from shared meal recomputation.
 
-- Responses exclude `ownerOpenid`.
-- Responses exclude `requestId`.
+## 7. Idempotency and replay
 
-## 7. Request replay and idempotency
+Profile create replay:
 
-Two request-replay patterns currently exist:
+- backed by `idempotency_keys(ownerOpenid, operation, requestId)`.
 
-- **Profiles:** `idempotency_keys` records `(ownerOpenid, operation, requestId)`.
-- **Meals:** the current M3 flow queries `meals` by `(ownerOpenid, requestId)` before and after
-  insert.
+Meal create replay:
 
-Both are **best-effort**, not atomic. This is honest and intentional in the docs. Recommended
-future hardening:
+- client sends a stable `requestId`,
+- repository code writes the meal first,
+- duplicate-key handling re-reads the original meal,
+- full atomic behavior depends on a unique CloudBase index on `meals(ownerOpenid, requestId)`.
 
-- unique composite index for profile replay,
-- unique composite index on `meals(ownerOpenid, requestId)` for atomic meal replay.
+That index creation remains a human setup step and is documented in the final runbook.
 
-## 8. Security rules of the architecture
+## 8. Provider-neutral AI interface
 
-- The client never sends, receives, logs, or stores `openid`.
-- The client never writes directly to user-owned collections.
-- Unknown fields from the client are ignored or dropped server-side.
-- Meal nutrition is always recomputed at the trusted boundary.
-- Offline/manual preview remains available even when cloud save is blocked.
+The shared AI service depends on:
 
-## 9. Deferred work beyond M3
+```ts
+interface AiProviderClient {
+  name: string;
+  analyze(request): Promise<AiAnalysisResult>;
+}
+```
 
-- M4: daily history, edit, delete.
-- M5: saved foods and recipes.
-- M6: photo upload and private storage flow.
-- M7: mock AI confirmation flow.
-- M8: real AI provider behind the same interface.
+Current implementations:
+
+- mock provider,
+- disabled provider,
+- OpenAI-compatible HTTP provider.
+
+The Mini Program never sees provider secrets and never needs a client change when the provider
+switches.
+
+## 9. Human-only steps
+
+Architecture-complete does not mean deployment-complete. The remaining human-only work is
+consolidated in [FINAL_HUMAN_RUNBOOK.md](./FINAL_HUMAN_RUNBOOK.md).
