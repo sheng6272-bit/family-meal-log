@@ -11,7 +11,7 @@ import { RELATION_OPTIONS } from '../../config/labels';
 
 interface EditData {
   mode: 'create' | 'edit';
-  profileId?: string;
+  profileId: string;
   name: string;
   relationIndex: number;
   relationOptions: { value: FamilyRelation; label: string }[];
@@ -28,7 +28,7 @@ interface EditData {
 Page<EditData, WechatMiniprogram.Page.CustomOption>({
   data: {
     mode: 'create',
-    profileId: undefined,
+    profileId: '',
     name: '',
     relationIndex: 0,
     relationOptions: RELATION_OPTIONS,
@@ -43,7 +43,7 @@ Page<EditData, WechatMiniprogram.Page.CustomOption>({
     this.setData({
       cloudReady: app.globalData.cloudReady,
       mode,
-      profileId: options.id,
+      profileId: options.id || '',
       createRequestId: newRequestId(),
     });
     if (mode === 'edit' && options.id) {

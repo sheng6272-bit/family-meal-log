@@ -20,7 +20,7 @@ const MOCK_SUGGESTIONS = [
     foodName: '西兰花',
     estimatedGrams: 80,
     confidence: 0.55,
-    matchedFoodId: 'sys_broccoli',
+    matchedFoodId: 'sys_broccoli_cooked',
     per100gGuess: { calories: 34, protein: 2.8, carb: 7, fat: 0.4 },
   },
 ];

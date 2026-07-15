@@ -7,23 +7,41 @@ const { isServiceError } = require('./lib/shared/repository');
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 
-function getProvider(env) {
-  const providerName = env.AI_PROVIDER || 'mock';
-  if (providerName === 'disabled') {
-    return {
-      name: 'disabled',
-      async analyze() {
-        return {
-          provider: 'disabled',
-          status: 'failed',
-          suggestions: [],
-          errorMessage: 'AI provider disabled',
-        };
-      },
-    };
+function createFailedProvider(name, errorMessage) {
+  return {
+    name,
+    async analyze() {
+      return {
+        provider: name,
+        status: 'failed',
+        suggestions: [],
+        errorMessage,
+      };
+    },
+  };
+}
+
+function getProvider(env, repo) {
+  const providerName =
+    typeof env.AI_PROVIDER === 'string' && env.AI_PROVIDER.trim()
+      ? env.AI_PROVIDER.trim()
+      : 'mock';
+
+  switch (providerName) {
+    case 'disabled':
+      return createFailedProvider('disabled', 'AI provider disabled');
+    case 'mock':
+      return createMockProvider();
+    case 'openai-compatible':
+      return createOpenAiCompatibleProvider(env, {
+        resolveImageUrl: (photoFileId) => repo.resolvePhotoTempUrl(photoFileId),
+      });
+    default:
+      return createFailedProvider(
+        providerName,
+        `Unsupported AI_PROVIDER value "${providerName}". Supported values: disabled, mock, openai-compatible.`,
+      );
   }
-  if (providerName === 'mock') return createMockProvider();
-  return createOpenAiCompatibleProvider(env);
 }
 
 function toErrorResult(error) {
@@ -43,7 +61,7 @@ exports.main = async (event) => {
 
   try {
     const repo = createRepository();
-    const provider = getProvider(process.env);
+    const provider = getProvider(process.env, repo);
     const result = await analyzeMealPhoto(repo, OPENID, event || {}, provider);
     return { ok: true, ...result };
   } catch (error) {

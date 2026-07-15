@@ -55,10 +55,10 @@ interface AiSuggestionDraft {
 
 interface AddMealData {
   mode: 'create' | 'edit';
-  editingMealId?: string;
-  loadedMealId?: string;
+  editingMealId: string;
+  loadedMealId: string;
   cloudReady: boolean;
-  activeProfileId?: string;
+  activeProfileId: string;
   activeProfileName: string;
   mealDate: string;
   mealTypes: { key: MealType; label: string }[];
@@ -92,12 +92,12 @@ interface AddMealData {
   editingItemIndex: number;
   currentRequestId: string;
   photoPreviewPath: string;
-  photoFileId?: string;
+  photoFileId: string;
   photoUploading: boolean;
   photoError: string;
   aiSubmitting: boolean;
   aiError: string;
-  aiAnalysisId?: string;
+  aiAnalysisId: string;
   aiSuggestions: AiSuggestionDraft[];
   saveSubmitting: boolean;
   saveEnabled: boolean;
@@ -204,10 +204,10 @@ function buildDraftItemsFromMeal(meal: ClientMeal): DraftMealItem[] {
 Page<AddMealData, WechatMiniprogram.Page.CustomOption>({
   data: {
     mode: 'create',
-    editingMealId: undefined,
-    loadedMealId: undefined,
+    editingMealId: '',
+    loadedMealId: '',
     cloudReady: false,
-    activeProfileId: undefined,
+    activeProfileId: '',
     activeProfileName: '未选择成员',
     mealDate: todayIso(),
     mealTypes: [
@@ -246,12 +246,12 @@ Page<AddMealData, WechatMiniprogram.Page.CustomOption>({
     editingItemIndex: -1,
     currentRequestId: mealApi.newMealRequestId(),
     photoPreviewPath: '',
-    photoFileId: undefined,
+    photoFileId: '',
     photoUploading: false,
     photoError: '',
     aiSubmitting: false,
     aiError: '',
-    aiAnalysisId: undefined,
+    aiAnalysisId: '',
     aiSuggestions: [],
     saveSubmitting: false,
     saveEnabled: false,
@@ -284,10 +284,10 @@ Page<AddMealData, WechatMiniprogram.Page.CustomOption>({
       if (!res.ok) {
         this.setData({
           cloudReady: true,
-          activeProfileId: undefined,
+          activeProfileId: '',
           activeProfileName: '成员加载失败',
         });
-        this.syncSaveEnabled({ cloudReady: true, activeProfileId: undefined });
+        this.syncSaveEnabled({ cloudReady: true, activeProfileId: '' });
         return;
       }
       await this.refreshLibrary();
@@ -298,12 +298,12 @@ Page<AddMealData, WechatMiniprogram.Page.CustomOption>({
     );
     this.setData({
       cloudReady: app.globalData.cloudReady,
-      activeProfileId: active?._id,
+      activeProfileId: active?._id || '',
       activeProfileName: active ? active.name : '未选择成员',
     });
     this.syncSaveEnabled({
       cloudReady: app.globalData.cloudReady,
-      activeProfileId: active?._id,
+      activeProfileId: active?._id || '',
     });
 
     if (
@@ -346,9 +346,9 @@ Page<AddMealData, WechatMiniprogram.Page.CustomOption>({
               foodCatalog.sumNutritionList(draftItems.map((item) => item.nutrition)),
             )
           : null,
-        photoFileId: meal.photoFileId,
+        photoFileId: meal.photoFileId || '',
         photoPreviewPath: meal.photoFileId || '',
-        aiAnalysisId: meal.aiAnalysisId,
+        aiAnalysisId: meal.aiAnalysisId || '',
         lastSavedSummary: buildSavedMealSummary(meal),
         saveError: '',
       });
@@ -758,7 +758,7 @@ Page<AddMealData, WechatMiniprogram.Page.CustomOption>({
       console.warn('[photo] upload failed', err);
       this.setData({
         photoError: '照片上传失败，但你仍然可以继续手动保存餐食。',
-        photoFileId: undefined,
+        photoFileId: '',
       });
       wx.showToast({ title: '照片上传失败', icon: 'none' });
     } finally {
@@ -769,10 +769,10 @@ Page<AddMealData, WechatMiniprogram.Page.CustomOption>({
   onClearPhoto() {
     this.setData({
       photoPreviewPath: '',
-      photoFileId: undefined,
+      photoFileId: '',
       photoError: '',
       aiSuggestions: [],
-      aiAnalysisId: undefined,
+      aiAnalysisId: '',
       aiError: '',
     });
   },
@@ -798,13 +798,13 @@ Page<AddMealData, WechatMiniprogram.Page.CustomOption>({
             : 'AI 暂时没有返回可用建议，请继续手动添加。';
         this.setData({
           aiSuggestions: [],
-          aiAnalysisId: result.analysisId,
-          aiError,
+          aiAnalysisId: result.analysisId || '',
+          aiError: result.errorMessage || aiError,
         });
         return;
       }
       this.setData({
-        aiAnalysisId: result.analysisId,
+        aiAnalysisId: result.analysisId || '',
         aiSuggestions: result.suggestions.map((suggestion) => ({
           key: toDraftKey(),
           foodName: suggestion.foodName,
@@ -921,7 +921,6 @@ Page<AddMealData, WechatMiniprogram.Page.CustomOption>({
       familyProfileId: this.data.activeProfileId,
       date: this.data.mealDate,
       mealType: this.data.selectedMealType,
-      note: undefined,
       photoFileId: this.data.photoFileId,
       aiAnalysisId: this.data.aiAnalysisId,
       items: this.data.draftItems.map((item) => ({
@@ -972,11 +971,11 @@ Page<AddMealData, WechatMiniprogram.Page.CustomOption>({
           lastSavedSummary: buildSavedMealSummary(reloaded),
           currentRequestId: nextRequestId,
           aiSuggestions: [],
-          aiAnalysisId: undefined,
+          aiAnalysisId: '',
           photoPreviewPath: '',
-          photoFileId: undefined,
+          photoFileId: '',
           photoError: '',
-          loadedMealId: undefined,
+          loadedMealId: '',
         });
         this.resetEditor();
         this.syncSaveEnabled({}, []);

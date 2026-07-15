@@ -25,7 +25,7 @@ function postJson({
         });
         response.on('end', () => {
           if (response.statusCode < 200 || response.statusCode >= 300) {
-            reject(new Error(`provider http ${response.statusCode}: ${text}`));
+            reject(new Error(`provider http ${response.statusCode}`));
             return;
           }
           resolve(text);
@@ -48,14 +48,29 @@ function normalizeTimeout(value) {
   return Math.min(Math.max(Math.round(parsed), 1000), 30000);
 }
 
-function buildPrompt(request) {
+function buildPromptText(request) {
   return [
     'You analyze a meal photo and must return strict JSON only.',
     'Return: {"suggestions":[{"foodName":string,"estimatedGrams":number,"confidence":number,"per100gGuess":{"calories":number,"protein":number,"carb":number,"fat":number},"matchedFoodId":string|null}]}',
     'Do not add markdown.',
     `Meal type hint: ${request.hintMealType || 'unknown'}.`,
-    `Photo file id: ${request.photoFileId}.`,
   ].join(' ');
+}
+
+function buildVisionMessage(request, imageUrl) {
+  return {
+    role: 'user',
+    content: [
+      {
+        type: 'text',
+        text: buildPromptText(request),
+      },
+      {
+        type: 'image_url',
+        image_url: { url: imageUrl },
+      },
+    ],
+  };
 }
 
 function parseProviderResponse(payloadText) {
@@ -85,58 +100,95 @@ function parseProviderResponse(payloadText) {
   }
 }
 
+function sanitizeErrorMessage(error, apiKey) {
+  const rawMessage = String((error && error.message) || error || 'AI provider request failed');
+  const redacted = apiKey ? rawMessage.split(apiKey).join('[redacted]') : rawMessage;
+
+  if (/temporary photo URL could not be resolved/i.test(redacted)) {
+    return 'meal photo could not be prepared for AI analysis';
+  }
+  if (/timeout/i.test(redacted)) {
+    return 'AI provider request timed out';
+  }
+  if (/provider returned non-JSON payload/i.test(redacted)) {
+    return 'AI provider returned non-JSON data';
+  }
+  if (
+    /provider message content is not valid JSON/i.test(redacted) ||
+    /provider response missing choices\[0\]\.message\.content/i.test(redacted) ||
+    /provider JSON missing suggestions array/i.test(redacted)
+  ) {
+    return 'AI provider returned malformed JSON';
+  }
+  if (/provider http \d+/i.test(redacted)) {
+    const match = redacted.match(/provider http \d+/i);
+    return match ? match[0] : 'AI provider request failed';
+  }
+  return redacted;
+}
+
 function createOpenAiCompatibleProvider(env, deps = {}) {
   const transport = deps.transport || postJson;
+  const resolveImageUrl = deps.resolveImageUrl || (async () => {
+    throw new Error('temporary photo URL could not be resolved');
+  });
   const endpoint = env.AI_API_URL;
   const apiKey = env.AI_API_KEY;
   const model = env.AI_MODEL;
   const timeoutMs = normalizeTimeout(env.AI_TIMEOUT_MS);
+  const providerName = env.AI_PROVIDER || 'openai-compatible';
 
   return {
-    name: env.AI_PROVIDER || 'openai_compatible',
+    name: providerName,
     async analyze(request) {
       if (!endpoint || !apiKey || !model) {
         throw new Error('real AI provider is not fully configured');
       }
 
-      const payload = {
-        model,
-        temperature: 0.2,
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'user',
-            content: buildPrompt(request),
+      try {
+        const imageUrl = await resolveImageUrl(request.photoFileId);
+        if (typeof imageUrl !== 'string' || !/^https?:\/\//.test(imageUrl)) {
+          throw new Error('temporary photo URL could not be resolved');
+        }
+
+        const payload = {
+          model,
+          temperature: 0.2,
+          response_format: { type: 'json_object' },
+          messages: [buildVisionMessage(request, imageUrl)],
+        };
+
+        const raw = await transport({
+          url: endpoint,
+          timeoutMs,
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
           },
-        ],
-      };
+          body: JSON.stringify(payload),
+        });
 
-      const raw = await transport({
-        url: endpoint,
-        timeoutMs,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(payload),
-      });
+        const parsed = parseProviderResponse(raw);
+        if (!parsed || !Array.isArray(parsed.suggestions)) {
+          throw new Error('provider JSON missing suggestions array');
+        }
 
-      const parsed = parseProviderResponse(raw);
-      if (!parsed || !Array.isArray(parsed.suggestions)) {
-        throw new Error('provider JSON missing suggestions array');
+        return {
+          provider: providerName,
+          status: 'succeeded',
+          suggestions: parsed.suggestions,
+        };
+      } catch (error) {
+        throw new Error(sanitizeErrorMessage(error, apiKey));
       }
-
-      return {
-        provider: env.AI_PROVIDER || 'openai_compatible',
-        status: 'succeeded',
-        suggestions: parsed.suggestions,
-      };
     },
   };
 }
 
 module.exports = {
+  buildVisionMessage,
   createOpenAiCompatibleProvider,
   normalizeTimeout,
   parseProviderResponse,
+  sanitizeErrorMessage,
 };

@@ -14,9 +14,26 @@ function createRepository() {
     return res.data && res.data[0] ? res.data[0] : null;
   }
 
+  async function resolvePhotoTempUrl(fileId) {
+    const result = await cloud.getTempFileURL({
+      fileList: [fileId],
+    });
+    const entry = Array.isArray(result.fileList) ? result.fileList[0] : null;
+    const tempUrl = entry && (
+      entry.tempFileURL ||
+      entry.tempFileUrl ||
+      entry.download_url
+    );
+    if (typeof tempUrl === 'string' && /^https?:\/\//.test(tempUrl)) {
+      return tempUrl;
+    }
+    throw new Error('temporary photo URL could not be resolved');
+  }
+
   return {
     createAiAnalysis,
     getAiAnalysis,
+    resolvePhotoTempUrl,
   };
 }
 

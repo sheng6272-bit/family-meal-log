@@ -20,7 +20,7 @@ interface HomeData {
   today: string;
   selectedDate: string;
   cloudReady: boolean;
-  activeProfile?: ClientProfile;
+  activeProfile: ClientProfile | null;
   activeProfileLabel: string;
   needsOnboarding: boolean;
   dailyTotals: NutritionValues;
@@ -71,7 +71,7 @@ Page<HomeData, WechatMiniprogram.Page.CustomOption>({
     today: todayIso(),
     selectedDate: todayIso(),
     cloudReady: false,
-    activeProfile: undefined,
+    activeProfile: null,
     activeProfileLabel: '未选择成员',
     needsOnboarding: false,
     dailyTotals: EMPTY_TOTALS,
@@ -104,7 +104,7 @@ Page<HomeData, WechatMiniprogram.Page.CustomOption>({
 
     this.setData({
       needsOnboarding: app.globalData.cloudReady && profiles.length === 0,
-      activeProfile: active,
+      activeProfile: active || null,
       activeProfileLabel: active
         ? active.name
         : profiles.length === 0

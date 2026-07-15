@@ -17,7 +17,7 @@ interface LibraryData {
   libraryError: string;
   recipeName: string;
   recipeServings: string;
-  editingRecipeId?: string;
+  editingRecipeId: string;
   ingredientSearchQuery: string;
   ingredientSearchResults: Food[];
   ingredientSearchEmpty: boolean;
@@ -38,7 +38,7 @@ Page<LibraryData, WechatMiniprogram.Page.CustomOption>({
     libraryError: '',
     recipeName: '',
     recipeServings: '1',
-    editingRecipeId: undefined,
+    editingRecipeId: '',
     ingredientSearchQuery: '',
     ingredientSearchResults: [],
     ingredientSearchEmpty: false,
@@ -133,7 +133,7 @@ Page<LibraryData, WechatMiniprogram.Page.CustomOption>({
     this.setData({
       recipeName: '',
       recipeServings: '1',
-      editingRecipeId: undefined,
+      editingRecipeId: '',
       draftIngredients: [],
       recipeError: '',
     });
@@ -178,7 +178,7 @@ Page<LibraryData, WechatMiniprogram.Page.CustomOption>({
     this.setData({
       recipeName: recipe.name,
       recipeServings: String(recipe.servings),
-      editingRecipeId: recipe._id,
+      editingRecipeId: recipe._id || '',
       draftIngredients: recipe.ingredients.map((ingredient) => ({
         key: draftKey(),
         food: {
