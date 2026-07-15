@@ -1,0 +1,81 @@
+.error-card,
+.error-text {
+  color: #c0392b;
+}
+
+.form-row {
+  margin-top: 16rpx;
+}
+
+.form-label {
+  font-size: 24rpx;
+  color: var(--color-text-weak);
+}
+
+.form-input {
+  margin-top: 8rpx;
+  background: #f2f4f7;
+  border-radius: 12rpx;
+  padding: 16rpx 20rpx;
+}
+
+.search-row,
+.list-item,
+.draft-head,
+.meal-actions,
+.ingredient-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.search-input {
+  flex: 1;
+}
+
+.search-clear,
+.action-link {
+  color: var(--color-primary);
+  font-size: 24rpx;
+}
+
+.action-link.danger {
+  color: #c0392b;
+}
+
+.result-list {
+  margin-top: 12rpx;
+  max-height: 360rpx;
+}
+
+.result-item,
+.list-item,
+.recipe-card {
+  margin-top: 12rpx;
+  padding: 18rpx 16rpx;
+  border-radius: 12rpx;
+  background: #f7f9fb;
+}
+
+.item-title {
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+.item-sub {
+  margin-top: 4rpx;
+  font-size: 24rpx;
+  color: var(--color-text-weak);
+}
+
+.grams-input {
+  width: 180rpx;
+  background: #fff;
+  border-radius: 10rpx;
+  padding: 12rpx 16rpx;
+  text-align: right;
+}
+
+.submit-btn {
+  margin-top: 20rpx;
+}

@@ -1,11 +1,31 @@
 const cloud = require('wx-server-sdk');
 
+function isDuplicateKeyError(error) {
+  const message = String(
+    (error && (error.errMsg || error.message || error.error)) || '',
+  ).toLowerCase();
+  return (
+    message.includes('duplicate') ||
+    message.includes('e11000') ||
+    message.includes('dup key') ||
+    message.includes('index')
+  );
+}
+
 function createRepository() {
   const db = cloud.database();
   const usersCol = db.collection('users');
   const profilesCol = db.collection('family_profiles');
   const mealsCol = db.collection('meals');
+  const foodsCol = db.collection('foods');
+  const recipesCol = db.collection('recipes');
+  const aiAnalysesCol = db.collection('ai_analyses');
   const idempotencyCol = db.collection('idempotency_keys');
+
+  async function findOneById(collection, id) {
+    const res = await collection.where({ _id: id }).limit(1).get();
+    return res.data && res.data[0] ? res.data[0] : null;
+  }
 
   async function findUserByOpenid(openid) {
     const res = await usersCol.where({ openid }).limit(1).get();
@@ -16,8 +36,8 @@ function createRepository() {
     const res = await usersCol.where({ openid: user.openid }).limit(1).get();
     if (res.data && res.data[0]) {
       const _id = res.data[0]._id;
-      const { _id: _omit, ...data } = user;
-      void _omit;
+      const { _id: omittedId, ...data } = user;
+      void omittedId;
       await usersCol.doc(_id).update({ data });
       return { ...user, _id };
     }
@@ -43,8 +63,7 @@ function createRepository() {
   }
 
   async function getProfile(id) {
-    const res = await profilesCol.where({ _id: id }).limit(1).get();
-    return res.data && res.data[0] ? res.data[0] : null;
+    return findOneById(profilesCol, id);
   }
 
   async function createProfile(profile) {
@@ -56,33 +75,106 @@ function createRepository() {
     const { _id, ...data } = patch;
     void _id;
     await profilesCol.doc(id).update({ data });
-    const res = await profilesCol.where({ _id: id }).limit(1).get();
-    return res.data && res.data[0] ? res.data[0] : null;
+    return findOneById(profilesCol, id);
   }
 
   async function createMeal(meal) {
-    const existing = await mealsCol
-      .where({ ownerOpenid: meal.ownerOpenid, requestId: meal.requestId })
-      .limit(1)
-      .get();
-    if (existing.data && existing.data[0]) return existing.data[0];
-
     try {
       const added = await mealsCol.add({ data: meal });
       return { ...meal, _id: added._id };
-    } catch (err) {
-      const duplicate = await mealsCol
-        .where({ ownerOpenid: meal.ownerOpenid, requestId: meal.requestId })
-        .limit(1)
-        .get();
-      if (duplicate.data && duplicate.data[0]) return duplicate.data[0];
-      throw err;
+    } catch (error) {
+      if (isDuplicateKeyError(error)) {
+        // With a unique index on (ownerOpenid, requestId), duplicate-key means
+        // the original request already won the race. Re-read and return it.
+        const duplicate = await mealsCol
+          .where({ ownerOpenid: meal.ownerOpenid, requestId: meal.requestId })
+          .limit(1)
+          .get();
+        if (duplicate.data && duplicate.data[0]) return duplicate.data[0];
+      }
+      throw error;
     }
   }
 
   async function getMeal(id) {
-    const res = await mealsCol.where({ _id: id }).limit(1).get();
-    return res.data && res.data[0] ? res.data[0] : null;
+    return findOneById(mealsCol, id);
+  }
+
+  async function listMeals(openid, familyProfileId, date) {
+    const res = await mealsCol
+      .where({ ownerOpenid: openid, familyProfileId, date })
+      .orderBy('createdAt', 'asc')
+      .get();
+    return res.data || [];
+  }
+
+  async function updateMeal(id, patch) {
+    const { _id, ...data } = patch;
+    void _id;
+    await mealsCol.doc(id).update({ data });
+    return findOneById(mealsCol, id);
+  }
+
+  async function deleteMeal(id) {
+    await mealsCol.doc(id).remove();
+  }
+
+  async function listFoods(openid) {
+    const res = await foodsCol
+      .where({ ownerOpenid: openid })
+      .orderBy('updatedAt', 'desc')
+      .get();
+    return res.data || [];
+  }
+
+  async function getFood(id) {
+    return findOneById(foodsCol, id);
+  }
+
+  async function createFood(food) {
+    const added = await foodsCol.add({ data: food });
+    return { ...food, _id: added._id };
+  }
+
+  async function deleteFood(id) {
+    await foodsCol.doc(id).remove();
+  }
+
+  async function listRecipes(openid) {
+    const res = await recipesCol
+      .where({ ownerOpenid: openid })
+      .orderBy('updatedAt', 'desc')
+      .get();
+    return res.data || [];
+  }
+
+  async function getRecipe(id) {
+    return findOneById(recipesCol, id);
+  }
+
+  async function createRecipe(recipe) {
+    const added = await recipesCol.add({ data: recipe });
+    return { ...recipe, _id: added._id };
+  }
+
+  async function updateRecipe(id, patch) {
+    const { _id, ...data } = patch;
+    void _id;
+    await recipesCol.doc(id).update({ data });
+    return findOneById(recipesCol, id);
+  }
+
+  async function deleteRecipe(id) {
+    await recipesCol.doc(id).remove();
+  }
+
+  async function createAiAnalysis(analysis) {
+    const added = await aiAnalysesCol.add({ data: analysis });
+    return { ...analysis, _id: added._id };
+  }
+
+  async function getAiAnalysis(id) {
+    return findOneById(aiAnalysesCol, id);
   }
 
   async function findIdempotencyKey(ownerOpenid, operation, requestId) {
@@ -94,13 +186,11 @@ function createRepository() {
   }
 
   async function saveIdempotencyKey(record) {
-    const existing = await findIdempotencyKey(
-      record.ownerOpenid,
-      record.operation,
-      record.requestId,
-    );
-    if (existing) return;
-    await idempotencyCol.add({ data: record });
+    try {
+      await idempotencyCol.add({ data: record });
+    } catch (error) {
+      if (!isDuplicateKeyError(error)) throw error;
+    }
   }
 
   return {
@@ -113,9 +203,23 @@ function createRepository() {
     updateProfile,
     createMeal,
     getMeal,
+    listMeals,
+    updateMeal,
+    deleteMeal,
+    listFoods,
+    getFood,
+    createFood,
+    deleteFood,
+    listRecipes,
+    getRecipe,
+    createRecipe,
+    updateRecipe,
+    deleteRecipe,
+    createAiAnalysis,
+    getAiAnalysis,
     findIdempotencyKey,
     saveIdempotencyKey,
   };
 }
 
-module.exports = { createRepository };
+module.exports = { createRepository, isDuplicateKeyError };

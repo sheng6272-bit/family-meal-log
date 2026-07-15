@@ -1,18 +1,23 @@
 import { isCloudReady, callFunction } from './cloud';
 import type {
   ClientMeal,
+  ClientMealListResult,
   CreateMealInput,
+  UpdateMealInput,
 } from '@shared/index';
 
-export type { ClientMeal, CreateMealInput } from '@shared/index';
-
-export interface MealCreateResult {
-  meal: ClientMeal;
-}
+export type {
+  ClientMeal,
+  ClientMealListResult,
+  CreateMealInput,
+  UpdateMealInput,
+} from '@shared/index';
 
 interface MealResponse {
   ok: boolean;
   meal?: ClientMeal;
+  meals?: ClientMeal[];
+  totals?: ClientMealListResult['totals'];
   error?: string;
   message?: string;
 }
@@ -28,34 +33,58 @@ export function newMealRequestId(): string {
   return `meal_${Date.now().toString(36)}_${rand}${rand2}`;
 }
 
-export async function createMeal(input: CreateMealInput): Promise<ClientMeal> {
-  const res = await req<MealResponse>('create', input as Record<string, unknown>);
-  if (!res.ok || !res.meal) {
-    throw new Error(toError(res, 'create_failed'));
-  }
-  return res.meal;
-}
-
-export async function getMeal(mealId: string): Promise<ClientMeal> {
-  const res = await req<MealResponse>('get', { mealId });
-  if (!res.ok || !res.meal) {
-    throw new Error(toError(res, 'get_failed'));
-  }
-  return res.meal;
-}
-
 function toError(res: MealResponse, fallback: string): string {
   if (res.error === 'invalid_input') return `invalid_input:${res.message || ''}`;
   return res.error || fallback;
 }
 
-export function toUserMessage(err: unknown): string {
-  if (!(err instanceof Error)) return '保存失败，请稍后重试';
-  if (err.message.startsWith('invalid_input:')) {
-    return err.message.replace(/^invalid_input:/, '') || '输入无效，请检查后重试';
+export async function createMeal(input: CreateMealInput): Promise<ClientMeal> {
+  const res = await req<MealResponse>('create', input as Record<string, unknown>);
+  if (!res.ok || !res.meal) throw new Error(toError(res, 'create_failed'));
+  return res.meal;
+}
+
+export async function getMeal(mealId: string): Promise<ClientMeal> {
+  const res = await req<MealResponse>('get', { mealId });
+  if (!res.ok || !res.meal) throw new Error(toError(res, 'get_failed'));
+  return res.meal;
+}
+
+export async function listMeals(
+  familyProfileId: string,
+  date: string,
+): Promise<ClientMealListResult> {
+  const res = await req<MealResponse>('list', { familyProfileId, date });
+  if (!res.ok || !res.meals || !res.totals) {
+    throw new Error(toError(res, 'list_failed'));
   }
-  if (err.message === 'cloud_not_ready') return '当前离线，无法保存到云端';
-  if (err.message === 'forbidden') return '当前成员不属于此账号';
-  if (err.message === 'not_found') return '未找到对应的餐食或成员';
-  return '保存失败，请稍后重试';
+  return { meals: res.meals, totals: res.totals };
+}
+
+export async function updateMeal(
+  mealId: string,
+  input: UpdateMealInput,
+): Promise<ClientMeal> {
+  const res = await req<MealResponse>('update', {
+    mealId,
+    ...(input as Record<string, unknown>),
+  });
+  if (!res.ok || !res.meal) throw new Error(toError(res, 'update_failed'));
+  return res.meal;
+}
+
+export async function deleteMeal(mealId: string): Promise<void> {
+  const res = await req<MealResponse>('delete', { mealId });
+  if (!res.ok) throw new Error(toError(res, 'delete_failed'));
+}
+
+export function toUserMessage(err: unknown): string {
+  if (!(err instanceof Error)) return '保存失败，请稍后重试。';
+  if (err.message.startsWith('invalid_input:')) {
+    return err.message.replace(/^invalid_input:/, '') || '输入有误，请检查后重试。';
+  }
+  if (err.message === 'cloud_not_ready') return '云开发尚未就绪，请稍后重试。';
+  if (err.message === 'forbidden') return '你没有权限访问这条餐食记录。';
+  if (err.message === 'not_found') return '没有找到这条餐食记录。';
+  return '操作失败，请稍后重试。';
 }

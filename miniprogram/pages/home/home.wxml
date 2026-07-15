@@ -1,29 +1,32 @@
 <view class="container">
-  <!-- Offline / not configured -->
   <view class="card" wx:if="{{!cloudReady}}">
     <view class="title">离线模式</view>
-    <view class="text-weak">未配置云环境，身份与成员功能暂不可用。手动记录入口仍保留。</view>
-    <button class="btn-primary add-btn" bindtap="onAddMeal">添加一餐</button>
+    <view class="text-weak">云开发未就绪时，仍可浏览页面，但无法读取云端餐食记录。</view>
+    <button class="btn-primary add-btn" bindtap="onAddMeal">新增餐食</button>
   </view>
 
-  <!-- Onboarding: no profiles yet -->
   <view class="card" wx:elif="{{needsOnboarding}}" bindtap="onCreateFirst">
     <view class="title">{{activeProfileLabel}}</view>
-    <view class="text-weak">{{today}} · 点击创建第一个家庭成员</view>
-    <button class="btn-primary add-btn" bindtap="onCreateFirst">创建第一个家庭成员</button>
+    <view class="text-weak">{{today}} · 先创建一个家庭成员，才能开始记录餐食。</view>
+    <button class="btn-primary add-btn" bindtap="onCreateFirst">创建第一个成员</button>
   </view>
 
-  <!-- Normal: has active profile -->
   <block wx:else>
     <view class="card card-tap" bindtap="onManageProfiles">
       <view class="title">{{activeProfileLabel}}</view>
-      <view class="text-weak">{{today}} · 点击管理家庭成员</view>
+      <view class="text-weak">点击管理家庭成员与默认选择</view>
     </view>
 
     <view class="card">
-      <view class="title">今日合计</view>
+      <view class="date-row">
+        <view class="title">日期</view>
+        <picker mode="date" value="{{selectedDate}}" bindchange="onDateChange">
+          <view class="date-display">{{selectedDate}}</view>
+        </picker>
+      </view>
+
       <view class="totals">
-        <view class="metric"><text class="num">{{dailyTotals.calories}}</text><text class="text-weak">千卡</text></view>
+        <view class="metric"><text class="num">{{dailyTotals.calories}}</text><text class="text-weak">kcal</text></view>
         <view class="metric"><text class="num">{{dailyTotals.protein}}</text><text class="text-weak">蛋白质(g)</text></view>
         <view class="metric"><text class="num">{{dailyTotals.carb}}</text><text class="text-weak">碳水(g)</text></view>
         <view class="metric"><text class="num">{{dailyTotals.fat}}</text><text class="text-weak">脂肪(g)</text></view>
@@ -31,13 +34,41 @@
     </view>
 
     <view class="card">
-      <view class="title">餐次</view>
-      <view class="meal-slots">
-        <view wx:for="{{mealTypes}}" wx:key="key" class="slot text-weak">{{item.label}}</view>
+      <view class="history-head">
+        <view class="title">当日餐食</view>
+        <view class="history-links">
+          <text class="action-link" bindtap="onOpenLibrary">收藏与食谱</text>
+          <text class="action-link" bindtap="onAddMeal">新增餐食</text>
+        </view>
       </view>
+
+      <view wx:if="{{historyLoading}}" class="text-weak">正在加载餐食记录…</view>
+      <view wx:elif="{{historyError}}" class="error-text">{{historyError}}</view>
+      <view wx:elif="{{dailyMeals.length === 0}}" class="text-weak">这一天还没有餐食记录。</view>
+
+      <block wx:else>
+        <view wx:for="{{dailyMeals}}" wx:key="mealId" class="meal-card">
+          <view class="meal-top">
+            <view>
+              <view class="meal-title">{{item.mealTypeLabel}} · {{item.itemCount}} 项</view>
+              <view class="meal-sub">{{item.totalsText}}</view>
+              <view wx:if="{{item.note}}" class="meal-note">{{item.note}}</view>
+            </view>
+            <view class="meal-badges">
+              <view wx:if="{{item.hasPhoto}}" class="badge">照片</view>
+              <view wx:if="{{item.isAiAssisted}}" class="badge ai">AI</view>
+            </view>
+          </view>
+          <view class="meal-actions">
+            <text class="action-link" data-id="{{item.mealId}}" bindtap="onEditMeal">编辑</text>
+            <text class="action-link danger" data-id="{{item.mealId}}" bindtap="onDeleteMeal">删除</text>
+          </view>
+        </view>
+      </block>
     </view>
 
-    <button class="btn-primary add-btn" bindtap="onAddMeal">添加一餐</button>
+    <button class="btn-primary add-btn" bindtap="onAddMeal">新增餐食</button>
+    <button class="btn-ghost manage-btn" bindtap="onOpenLibrary">打开收藏与食谱</button>
     <button class="btn-ghost manage-btn" bindtap="onManageProfiles">管理家庭成员</button>
   </block>
 </view>

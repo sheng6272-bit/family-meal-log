@@ -1,73 +1,112 @@
-/**
- * Client food-catalog service (M2).
- *
- * Wraps the SHARED runtime that is generated into `miniprogram/lib/shared/` by
- * `npm run build:shared` (see scripts/build-shared.mjs). We load it via a
- * runtime `require` (not an `import`) so:
- *  - the SAME validators / calculation live in one place (the shared layer);
- *  - the client never re-implements nutrition math or search logic;
- *  - type information is still available via `import type` from `@shared/*`.
- *
- * This service deliberately does NOT:
- *  - call `mealApi` or write any `meals` record (meal persistence is M3);
- *  - write to CloudBase or the `foods` collection;
- *  - touch openid / cloud identity;
- *  - depend on any AI code.
- *
- * Ad-hoc (user-entered) foods are kept in module memory ONLY for the current
- * session — they are never persisted and never uploaded.
- */
-
 import type {
-  Food,
-  PortionUnit,
-  NutritionValues,
-  FoodPreview,
   AdHocFoodInput,
+  ClientRecipe,
+  Food,
+  FoodPreview,
+  NutritionValues,
+  PortionUnit,
 } from '@shared/index';
 
-// Runtime load of the shared CommonJS build. Typed via the source module.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const shared = require('../lib/shared/index.js') as typeof import('@shared/index');
 
-export type { Food, PortionUnit, NutritionValues, FoodPreview, AdHocFoodInput };
+export type {
+  AdHocFoodInput,
+  ClientRecipe,
+  Food,
+  FoodPreview,
+  NutritionValues,
+  PortionUnit,
+};
 
-// Session-only ad-hoc foods (NOT persisted anywhere).
 let sessionAdHocFoods: Food[] = [];
+let sessionSavedFoods: Food[] = [];
+let sessionRecipeFoods: Food[] = [];
+let recipeUnitByFoodId: Record<string, PortionUnit> = {};
+
+function dedupeFoods(foods: Food[]): Food[] {
+  const seen = new Set<string>();
+  const output: Food[] = [];
+  foods.forEach((food) => {
+    const key = food._id || `${food.source}:${food.name}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    output.push(food);
+  });
+  return output;
+}
 
 export function getSystemFoods(): Food[] {
   return shared.SYSTEM_FOODS;
 }
 
-export function getAdHocFoods(): Food[] {
-  return sessionAdHocFoods;
+export function getSavedFoods(): Food[] {
+  return sessionSavedFoods.slice();
 }
 
-/** Test/utility hook: clear session ad-hoc foods. */
+export function getRecipeFoods(): Food[] {
+  return sessionRecipeFoods.slice();
+}
+
+export function getAdHocFoods(): Food[] {
+  return sessionAdHocFoods.slice();
+}
+
 export function resetAdHocFoods(): void {
   sessionAdHocFoods = [];
 }
 
-/** Search across system foods + this session's ad-hoc foods. */
-export function searchFoods(query: string): Food[] {
-  return shared.searchFoods([...shared.SYSTEM_FOODS, ...sessionAdHocFoods], query);
+export function resetLibraryFoods(): void {
+  sessionSavedFoods = [];
+  sessionRecipeFoods = [];
+  recipeUnitByFoodId = {};
 }
 
-/** Available portion units for a food (generic g/ml + that food's specifics). */
-export function getPortionUnits(foodId: string | undefined): PortionUnit[] {
+export function setLibraryFoods(savedFoods: Food[], recipes: ClientRecipe[]): void {
+  sessionSavedFoods = dedupeFoods(savedFoods.map((food) => ({ ...food })));
+  sessionRecipeFoods = recipes.map((recipe) => shared.recipeToFood(recipe));
+  recipeUnitByFoodId = {};
+  recipes.forEach((recipe) => {
+    if (recipe._id) {
+      recipeUnitByFoodId[recipe._id] = shared.recipeToPortionUnit(recipe);
+    }
+  });
+}
+
+function combinedFoods(): Food[] {
+  return dedupeFoods([
+    ...shared.SYSTEM_FOODS,
+    ...sessionSavedFoods,
+    ...sessionRecipeFoods,
+    ...sessionAdHocFoods,
+  ]);
+}
+
+export function searchFoods(query: string): Food[] {
+  return shared.searchFoods(combinedFoods(), query);
+}
+
+export function findFoodById(id: string | undefined): Food | undefined {
+  if (!id) return undefined;
+  return combinedFoods().find((food) => food._id === id);
+}
+
+export function getPortionUnits(food: Food | null | undefined): PortionUnit[] {
+  if (!food) return [];
+  if (food._id && recipeUnitByFoodId[food._id]) {
+    return [recipeUnitByFoodId[food._id], ...shared.genericPortionUnits()];
+  }
   return shared.getAvailablePortionUnits(
-    foodId,
+    food.linkedFoodId || food._id,
     shared.genericPortionUnits(),
     shared.SYSTEM_PORTION_UNITS,
   );
 }
 
-/** Initial unit a UI should select for the given units. */
 export function getDefaultPortionUnit(units: PortionUnit[]): PortionUnit | undefined {
   return shared.getDefaultPortionUnit(units);
 }
 
-/** Compute the single-food preview (grams + scaled nutrition). */
 export function computePreview(
   food: Food,
   unit: PortionUnit,
@@ -80,25 +119,19 @@ export function sumNutritionList(list: NutritionValues[]): NutritionValues {
   return shared.sumNutrition(list);
 }
 
-/**
- * Create a session-only ad-hoc food and add it to the session list. The
- * returned food is immediately usable for preview/search in this session.
- */
 export function createAdHocFood(input: AdHocFoodInput): Food {
   const food = shared.createAdHocFood(input);
   sessionAdHocFoods = [...sessionAdHocFoods, food];
   return food;
 }
 
-/**
- * Map a thrown error to a user-facing (Chinese) message. Emphasises clear,
- * actionable text rather than raw English exception strings.
- */
 export function toUserMessage(err: unknown): string {
   if (shared.isServiceError(err)) {
-    if (err.code === 'validation') return err.message || '输入无效，请检查后重试';
-    return '操作失败，请稍后重试';
+    if (err.code === 'validation') return err.message || '输入有误，请检查后重试。';
+    if (err.code === 'forbidden') return '你没有权限使用这个内容。';
+    if (err.code === 'not_found') return '没有找到对应的食品。';
+    return '操作失败，请稍后重试。';
   }
-  if (err instanceof Error) return err.message || '操作失败，请稍后重试';
-  return '操作失败，请稍后重试';
+  if (err instanceof Error) return err.message || '操作失败，请稍后重试。';
+  return '操作失败，请稍后重试。';
 }

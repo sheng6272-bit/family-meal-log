@@ -2,11 +2,12 @@
   "pages": [
     "pages/home/home",
     "pages/add-meal/add-meal",
+    "pages/library/library",
     "pages/profiles/profiles",
     "pages/profile-edit/profile-edit"
   ],
   "window": {
-    "navigationBarTitleText": "家庭饮食记录",
+    "navigationBarTitleText": "家庭餐食记录",
     "navigationBarBackgroundColor": "#2B5C8F",
     "navigationBarTextStyle": "white",
     "backgroundColor": "#F5F6F8",
