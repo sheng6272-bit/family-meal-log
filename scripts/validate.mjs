@@ -91,6 +91,11 @@ check(
   !/cloudEnvId:\s*['"][^'"]+['"]/.test(envTs) ||
     /cloudEnvId:\s*['"]{2}/.test(envTs),
 );
+const appTs = readFileSync(join(ROOT, 'miniprogram/app.ts'), 'utf8');
+check(
+  'app.ts does not hard-import env.local.ts',
+  !/from ['"]\.\/config\/env\.local['"]/.test(appTs),
+);
 // A5. Security: .gitignore protects secrets and private config.
 const gitignore = readFileSync(join(ROOT, '.gitignore'), 'utf8');
 check('.gitignore ignores .env', /(^|\r?\n)\.env(\r?\n|$|\*)/.test(gitignore));
