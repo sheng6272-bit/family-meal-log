@@ -97,9 +97,10 @@ index, security-rule, storage, and cloud-function deployment setup.
 
 ### Real AI
 
-1. Set a real provider configuration in cloud-function env vars.
+1. Set `AI_PROVIDER=openai-compatible` and configure the real provider env vars.
 2. Trigger AI analysis with a valid test photo.
-   Expected: the request succeeds or fails gracefully without blocking manual entry.
+   Expected: the request succeeds or fails gracefully without blocking manual entry, and the
+   real provider receives the actual image via a server-resolved temporary CloudBase URL.
 3. Temporarily break the model/url/key configuration.
    Expected: analysis degrades cleanly and manual logging still works.
 

@@ -167,7 +167,9 @@ Manual storage-permission verification remains in the human runbook.
 
 - provider selection by `AI_PROVIDER`,
 - explicit `AI_PROVIDER=disabled` mode,
+- exact real-provider mode `AI_PROVIDER=openai-compatible`,
 - `AI_API_URL`, `AI_API_KEY`, `AI_MODEL`, and `AI_TIMEOUT_MS` cloud env configuration,
+- server-side `photoFileId` to temporary CloudBase URL resolution for multimodal requests,
 - timeout normalization and malformed-response handling,
 - mocked transport tests for the real-provider adapter.
 

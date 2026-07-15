@@ -1,6 +1,6 @@
 # Architecture - Family Meal Log MVP
 
-> Current automated baseline on `feature/mvp-completion`: `npm run validate` -> **142 passed, 0 failed**
+> Current automated baseline on `feature/mvp-completion`: `npm run validate` -> **192 passed, 0 failed**
 
 ## 1. System overview
 
@@ -103,7 +103,8 @@ The copies are generated artifacts, are git-ignored, and must never be edited ma
 - `aiAnalyze`
   - persists advisory AI analyses,
   - selects provider by `AI_PROVIDER`,
-  - supports `mock`, `disabled`, and real provider modes.
+  - supports `disabled`, `mock`, and `openai-compatible`,
+  - resolves `photoFileId` into a short-lived CloudBase URL server-side before calling a real vision endpoint.
 
 ## 6. Data flow highlights
 

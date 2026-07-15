@@ -74,6 +74,9 @@ The app is designed to work through cloud functions, not direct client database 
 - Meal photos are uploaded to CloudBase Storage and referenced by `photoFileId`.
 - Storage should remain non-public by default.
 - The client should not depend on public object URLs or embedded secrets.
+- In `AI_PROVIDER=openai-compatible` mode, the server resolves `photoFileId` into a short-lived
+  CloudBase temporary URL and passes that URL to the provider as `image_url` content.
+- Permanent public photo URLs must not be persisted or returned to the client.
 
 Exact manual storage verification steps are in [FINAL_HUMAN_RUNBOOK.md](./FINAL_HUMAN_RUNBOOK.md).
 

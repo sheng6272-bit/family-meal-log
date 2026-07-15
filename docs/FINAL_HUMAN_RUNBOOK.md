@@ -31,35 +31,35 @@ Create these indexes exactly:
 
 ### `users`
 
-1. `openid` unique
+1. `(openid asc)` unique
 
 ### `family_profiles`
 
-1. `(ownerOpenid, createdAt)`
+1. `(ownerOpenid asc, createdAt asc)`
 
 ### `idempotency_keys`
 
-1. `(ownerOpenid, operation, requestId)`
+1. `(ownerOpenid asc, operation asc, requestId asc)`
 
 ### `meals`
 
-1. `(ownerOpenid, familyProfileId, date)`
-2. `(ownerOpenid, requestId)` **unique**
+1. `(ownerOpenid asc, familyProfileId asc, date asc)`
+2. `(ownerOpenid asc, requestId asc)` **unique**
 
 The second index is required for the strongest practical atomic meal-create replay used by the
 repository. Without it, duplicate rapid submits may still race.
 
 ### `foods`
 
-1. `(ownerOpenid, updatedAt)`
+1. `(ownerOpenid asc, updatedAt desc)`
 
 ### `recipes`
 
-1. `(ownerOpenid, updatedAt)`
+1. `(ownerOpenid asc, updatedAt desc)`
 
 ### `ai_analyses`
 
-1. `(ownerOpenid, createdAt)`
+1. `(ownerOpenid asc, createdAt desc)`
 
 ## 4. Apply database security rules
 
@@ -90,6 +90,8 @@ Recommended rule:
 3. Confirm uploads through the Mini Program can create files under the `meal-photos/` prefix.
 4. Verify that a saved `photoFileId` can later be resolved by the Mini Program without exposing
    public secrets or public object URLs in the repo.
+5. For real AI mode, confirm `aiAnalyze` can resolve the stored `photoFileId` server-side into a
+   short-lived CloudBase temporary URL. The client must never generate or upload a public image URL.
 
 ## 6. Configure local and cloud environment values
 
@@ -112,12 +114,13 @@ Recommended modes:
 
 1. `AI_PROVIDER=disabled`
 2. `AI_PROVIDER=mock`
-3. `AI_PROVIDER=<your real provider label>`
+3. `AI_PROVIDER=openai-compatible`
 
 For mock mode, no additional AI secrets are needed.
 
 For real mode, set all of:
 
+1. `AI_PROVIDER=openai-compatible`
 1. `AI_API_URL`
 2. `AI_API_KEY`
 3. `AI_MODEL`
@@ -216,13 +219,15 @@ Run the full checklist in [MANUAL_TEST_CHECKLIST.md](./MANUAL_TEST_CHECKLIST.md)
 
 ## 15. Real AI verification
 
-1. Set `AI_PROVIDER` to the real provider label used in your environment.
+1. Set `AI_PROVIDER=openai-compatible`.
 2. Configure `AI_API_URL`, `AI_API_KEY`, and `AI_MODEL`.
 3. Optionally configure `AI_TIMEOUT_MS`.
 4. Trigger AI analysis with a representative test photo.
 5. Confirm:
    - analysis returns suggestions or a graceful failure,
+   - the cloud function resolves `photoFileId` into a temporary CloudBase URL server-side before the provider call,
    - the Mini Program never displays or logs the secret,
+   - no permanent public image URL is stored,
    - manual entry remains available when the provider fails.
 6. Intentionally break one of:
    - URL

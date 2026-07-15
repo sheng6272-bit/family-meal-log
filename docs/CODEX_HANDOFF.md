@@ -3,7 +3,7 @@
 > Last updated: 2026-07-15
 > Active branch: `feature/mvp-completion`
 > Local `master`: `d39e520` (`fix: handle CRLF in env ignore validation (#2)`)
-> Automated baseline: `npm run validate` -> **142 passed, 0 failed**
+> Automated baseline: `npm run validate` -> **192 passed, 0 failed**
 
 This file is the current engineering handoff snapshot. Permanent repository operating rules live
 in `AGENTS.md`.
@@ -41,6 +41,8 @@ Implemented in the current branch:
 - AI-assisted confirmation flow in add-meal,
 - provider-neutral real AI adapter selected by `AI_PROVIDER`,
 - explicit `AI_PROVIDER=disabled` mode,
+- exact real-provider value `AI_PROVIDER=openai-compatible`,
+- server-side temporary CloudBase photo URL resolution for real AI image handoff,
 - atomic meal-create hardening path via duplicate-key recovery plus required unique meal replay index.
 
 ## 4. Important repository facts
