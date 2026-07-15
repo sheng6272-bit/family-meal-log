@@ -1,8 +1,34 @@
+.profile-name {
+  font-size: 34rpx;
+  font-weight: 600;
+  margin-top: 8rpx;
+}
+
+.date-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 16rpx;
+}
+
+.date-display {
+  background: #f2f4f7;
+  border-radius: 12rpx;
+  padding: 12rpx 18rpx;
+}
+
+.notice-text {
+  margin-top: 12rpx;
+  color: #b85a00;
+  font-size: 24rpx;
+}
+
 .slots {
   display: flex;
   gap: 16rpx;
   margin-top: 16rpx;
 }
+
 .slot {
   flex: 1;
   text-align: center;
@@ -11,37 +37,42 @@
   background: #eef1f5;
   color: var(--color-text-weak);
 }
+
 .slot-active {
   background: var(--color-primary);
   color: #fff;
 }
 
-/* Search */
 .search-row {
   display: flex;
   align-items: center;
   gap: 16rpx;
   margin-top: 16rpx;
 }
+
 .search-input {
   flex: 1;
   background: #f2f4f7;
   border-radius: 12rpx;
   padding: 16rpx 20rpx;
 }
+
 .search-clear {
   color: var(--color-primary);
   padding: 0 8rpx;
 }
+
 .empty-state {
   margin-top: 20rpx;
   color: var(--color-text-weak);
   font-size: 26rpx;
 }
+
 .result-list {
   margin-top: 16rpx;
   max-height: 520rpx;
 }
+
 .result-item {
   display: flex;
   justify-content: space-between;
@@ -51,107 +82,124 @@
   background: #f7f9fb;
   margin-bottom: 12rpx;
 }
+
 .result-active {
   background: #e7f0fa;
   border: 1rpx solid var(--color-primary);
 }
+
 .result-name {
   font-size: 30rpx;
   font-weight: 600;
 }
+
 .result-sub {
   font-size: 24rpx;
   color: var(--color-text-weak);
   margin-top: 4rpx;
 }
+
 .result-meta {
   text-align: right;
 }
+
 .result-kcal {
   font-size: 26rpx;
 }
+
 .result-src {
   font-size: 22rpx;
   color: var(--color-text-weak);
   margin-top: 4rpx;
 }
 
-/* Custom form */
 .item-btn {
   margin-top: 16rpx;
 }
+
 .custom-form {
   margin-top: 16rpx;
 }
+
 .form-row {
   margin-bottom: 16rpx;
 }
+
 .form-label {
   font-size: 24rpx;
   color: var(--color-text-weak);
 }
+
 .form-input {
   margin-top: 8rpx;
   background: #f2f4f7;
   border-radius: 12rpx;
   padding: 16rpx 20rpx;
 }
+
 .form-grid {
   display: flex;
   flex-wrap: wrap;
   gap: 16rpx;
 }
+
 .form-grid .form-row {
   width: calc(50% - 8rpx);
   margin-bottom: 0;
 }
+
 .form-error {
   color: #c0392b;
   font-size: 24rpx;
   margin: 12rpx 0;
 }
+
 .form-actions {
   display: flex;
   gap: 16rpx;
   margin-top: 16rpx;
 }
+
 .btn-ghost {
   background: #eef1f5;
   color: var(--color-text);
   border-radius: 12rpx;
 }
 
-/* Selected food */
 .sel-name {
   font-size: 32rpx;
   font-weight: 600;
   margin-top: 8rpx;
 }
+
 .sel-per100 {
   margin-top: 12rpx;
   font-size: 26rpx;
 }
+
 .sel-meta {
   margin-top: 8rpx;
   font-size: 24rpx;
   color: var(--color-text-weak);
 }
 
-/* Portion */
 .portion-row {
   display: flex;
   align-items: center;
   gap: 16rpx;
-  margin-top: 12rpx;
+  margin-top: 16rpx;
 }
+
 .portion-picker {
   flex: 1;
 }
+
 .portion-display {
   background: #f2f4f7;
   border-radius: 12rpx;
   padding: 16rpx 20rpx;
 }
+
 .portion-qty {
   width: 200rpx;
   background: #f2f4f7;
@@ -159,13 +207,19 @@
   padding: 16rpx 20rpx;
 }
 
-/* Preview */
+.preview-title {
+  margin-top: 20rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
 .preview-grid {
   display: flex;
   flex-wrap: wrap;
   gap: 16rpx;
   margin-top: 12rpx;
 }
+
 .preview-cell {
   flex: 1;
   min-width: 120rpx;
@@ -174,28 +228,89 @@
   padding: 20rpx 0;
   text-align: center;
 }
+
 .preview-val {
   font-size: 34rpx;
   font-weight: 600;
   color: var(--color-primary);
 }
+
 .preview-unit {
   font-size: 22rpx;
   color: var(--color-text-weak);
   margin-top: 4rpx;
 }
+
 .preview-error {
   color: #c0392b;
   font-size: 26rpx;
   margin-top: 12rpx;
 }
 
-/* M3 boundary + save */
-.m3-note {
-  margin: 8rpx 24rpx 0;
+.editor-actions {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 20rpx;
+}
+
+.draft-item {
+  background: #f7f9fb;
+  border-radius: 12rpx;
+  padding: 18rpx 16rpx;
+  margin-top: 12rpx;
+}
+
+.draft-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.draft-name {
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+.draft-meta {
+  margin-top: 6rpx;
   font-size: 24rpx;
   color: var(--color-text-weak);
 }
+
+.draft-nutrition {
+  margin-top: 12rpx;
+  font-size: 24rpx;
+}
+
+.draft-actions {
+  display: flex;
+  gap: 20rpx;
+  align-items: flex-start;
+}
+
+.action-link {
+  color: var(--color-primary);
+  font-size: 24rpx;
+}
+
+.action-link.danger {
+  color: #c0392b;
+}
+
+.error-card {
+  color: #c0392b;
+  font-size: 26rpx;
+}
+
+.success-card {
+  background: #f1fbf2;
+}
+
+.success-line {
+  margin-top: 8rpx;
+  font-size: 26rpx;
+}
+
 .save-btn {
   margin-top: 24rpx;
 }

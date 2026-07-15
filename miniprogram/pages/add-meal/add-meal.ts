@@ -1,17 +1,9 @@
-/**
- * Add-meal page (M2 — food catalog & portion nutrition preview).
- *
- * Scope boundary (M2): this page lets the user SEARCH or DEFINE a single food,
- * pick a portion unit + quantity, and see a live grams + nutrition preview. It
- * does NOT persist a meal and does NOT call any meal-save API. Meal saving belongs to
- * M3; the "保存这一餐" button is intentionally disabled and shows an M3 note.
- *
- * All nutrition math, search, unit merging and ad-hoc creation come from the
- * SHARED runtime (via the `food-catalog` service) — this page only holds UI
- * state, calls the service, and renders. No nutrition formulas live here.
- */
+import type { MealType } from '../../../shared/constants';
+import type { NutritionValues } from '../../services/food-catalog';
+import type { ClientMeal } from '../../services/meal';
 import * as foodCatalog from '../../services/food-catalog';
-import type { Food, PortionUnit } from '../../services/food-catalog';
+import * as mealApi from '../../services/meal';
+import { loadSession } from '../../services/session';
 
 interface PreviewNumbers {
   grams: number;
@@ -29,16 +21,37 @@ interface PreviewText {
   fat: string;
 }
 
+interface DraftMealItem {
+  draftKey: string;
+  food: foodCatalog.Food;
+  quantity: number;
+  portionLabel: string;
+  portionGramsPerUnit: number;
+  grams: number;
+  nutrition: NutritionValues;
+  display: PreviewText;
+}
+
+interface SavedMealSummary {
+  mealId: string;
+  date: string;
+  mealTypeLabel: string;
+  itemCount: number;
+  totals: PreviewText;
+}
+
 interface AddMealData {
-  mealTypes: { key: string; label: string }[];
-  selectedMealType: string; // UI-only state in M2 (not saved)
-  // search
+  cloudReady: boolean;
+  activeProfileId?: string;
+  activeProfileName: string;
+  mealDate: string;
+  mealTypes: { key: MealType; label: string }[];
+  selectedMealType: MealType;
   searchQuery: string;
-  searchResults: Food[];
+  searchResults: foodCatalog.Food[];
   searchEmpty: boolean;
-  // selected food
-  selectedFood: Food | null;
-  // custom-food form
+  selectedFood: foodCatalog.Food | null;
+  selectedFoodId: string;
   showCustomForm: boolean;
   customName: string;
   customBrand: string;
@@ -49,20 +62,65 @@ interface AddMealData {
   customFat: string;
   customError: string;
   customSubmitting: boolean;
-  // portion
-  portionUnits: PortionUnit[];
+  portionUnits: foodCatalog.PortionUnit[];
   selectedUnitIndex: number;
-  quantity: string; // kept as string while editing; parsed on compute
-  // preview
+  quantity: string;
   preview: PreviewNumbers | null;
   previewText: PreviewText | null;
   previewError: string;
-  // M3 boundary
-  canSaveMeal: boolean; // always false in M2
+  draftItems: DraftMealItem[];
+  draftTotalText: PreviewText | null;
+  editingItemIndex: number;
+  currentRequestId: string;
+  saveSubmitting: boolean;
+  saveEnabled: boolean;
+  saveError: string;
+  lastSavedSummary: SavedMealSummary | null;
+}
+
+const MEAL_TYPE_LABELS: Record<MealType, string> = {
+  breakfast: '早餐',
+  lunch: '午餐',
+  dinner: '晚餐',
+  snack: '加餐',
+};
+
+function todayIso(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function toPreviewText(grams: number, nutrition: NutritionValues): PreviewText {
+  return {
+    grams: grams.toFixed(1),
+    calories: nutrition.calories.toFixed(1),
+    protein: nutrition.protein.toFixed(1),
+    carb: nutrition.carb.toFixed(1),
+    fat: nutrition.fat.toFixed(1),
+  };
+}
+
+function toDraftKey(): string {
+  return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function buildSavedMealSummary(meal: ClientMeal): SavedMealSummary {
+  return {
+    mealId: meal._id,
+    date: meal.date,
+    mealTypeLabel: MEAL_TYPE_LABELS[meal.mealType],
+    itemCount: meal.items.length,
+    totals: toPreviewText(meal.items.reduce((sum, item) => sum + item.grams, 0), meal.totals),
+  };
 }
 
 Page<AddMealData, WechatMiniprogram.Page.CustomOption>({
   data: {
+    cloudReady: false,
+    activeProfileId: undefined,
+    activeProfileName: '未选择成员',
+    mealDate: todayIso(),
     mealTypes: [
       { key: 'breakfast', label: '早餐' },
       { key: 'lunch', label: '午餐' },
@@ -74,6 +132,7 @@ Page<AddMealData, WechatMiniprogram.Page.CustomOption>({
     searchResults: [],
     searchEmpty: false,
     selectedFood: null,
+    selectedFoodId: '',
     showCustomForm: false,
     customName: '',
     customBrand: '',
@@ -90,56 +149,111 @@ Page<AddMealData, WechatMiniprogram.Page.CustomOption>({
     preview: null,
     previewText: null,
     previewError: '',
-    canSaveMeal: false, // meal persistence is M3
+    draftItems: [],
+    draftTotalText: null,
+    editingItemIndex: -1,
+    currentRequestId: mealApi.newMealRequestId(),
+    saveSubmitting: false,
+    saveEnabled: false,
+    saveError: '',
+    lastSavedSummary: null,
   },
 
   onLoad() {
-    // Start with the full catalog (empty query returns everything).
-    const results = foodCatalog.searchFoods('');
-    this.setData({ searchResults: results, searchEmpty: results.length === 0 });
+    this.refreshSearch('');
+  },
+
+  onShow() {
+    this.refreshSessionState();
+  },
+
+  async refreshSessionState() {
+    const app = getApp<IAppOption>();
+    if (app.globalData.cloudReady) {
+      const res = await loadSession(app);
+      if (!res.ok) {
+        this.setData({
+          cloudReady: true,
+          activeProfileId: undefined,
+          activeProfileName: '成员加载失败',
+        });
+        this.syncSaveEnabled({ cloudReady: true, activeProfileId: undefined });
+        return;
+      }
+    }
+
+    const active = (app.globalData.profiles || []).find(
+      (profile) => profile._id === app.globalData.activeFamilyProfileId,
+    );
+    this.setData({
+      cloudReady: app.globalData.cloudReady,
+      activeProfileId: active?._id,
+      activeProfileName: active ? active.name : '未选择成员',
+    });
+    this.syncSaveEnabled({
+      cloudReady: app.globalData.cloudReady,
+      activeProfileId: active?._id,
+    });
+  },
+
+  onDateChange(e: WechatMiniprogram.PickerChange) {
+    this.setData({ mealDate: e.detail.value as string });
   },
 
   onSelectMealType(e: WechatMiniprogram.BaseEvent) {
-    const key = e.currentTarget.dataset.key as string;
+    const key = e.currentTarget.dataset.key as MealType;
     this.setData({ selectedMealType: key });
   },
 
-  // ---- Search ----
+  refreshSearch(query: string) {
+    const results = foodCatalog.searchFoods(query);
+    this.setData({
+      searchQuery: query,
+      searchResults: results,
+      searchEmpty: results.length === 0,
+    });
+  },
+
   onSearchInput(e: WechatMiniprogram.Input) {
-    const q = e.detail.value;
-    const results = foodCatalog.searchFoods(q);
-    this.setData({ searchQuery: q, searchResults: results, searchEmpty: results.length === 0 });
+    this.refreshSearch(e.detail.value);
   },
 
   onClearSearch() {
-    const results = foodCatalog.searchFoods('');
-    this.setData({ searchQuery: '', searchResults: results, searchEmpty: results.length === 0 });
+    this.refreshSearch('');
   },
 
   onSelectFood(e: WechatMiniprogram.BaseEvent) {
     const id = e.currentTarget.dataset.id as string;
-    const food = this.data.searchResults.find((f) => f._id === id) || null;
+    const food = this.data.searchResults.find((item) => item._id === id) || null;
     if (!food) return;
     this.selectFood(food);
   },
 
-  /** Select a food, load its units, and reset quantity/preview. */
-  selectFood(food: Food) {
+  selectFood(food: foodCatalog.Food) {
     const units = foodCatalog.getPortionUnits(food._id);
-    const def = foodCatalog.getDefaultPortionUnit(units);
-    const idx = def ? units.findIndex((u) => u.label === def.label) : 0;
+    const defaultUnit = foodCatalog.getDefaultPortionUnit(units);
+    const selectedUnitIndex = defaultUnit
+      ? Math.max(
+          units.findIndex((unit) => unit.label === defaultUnit.label),
+          0,
+        )
+      : 0;
+
     this.setData({
       selectedFood: food,
+      selectedFoodId: food._id || '',
       portionUnits: units,
-      selectedUnitIndex: idx >= 0 ? idx : 0,
+      selectedUnitIndex,
       quantity: '1',
-      showCustomForm: false,
+      previewError: '',
+      preview: null,
+      previewText: null,
       customError: '',
+      showCustomForm: false,
     });
     this.computePreview();
   },
 
-  // ---- Custom food form ----
   onShowCustomForm() {
     this.setData({
       showCustomForm: true,
@@ -181,26 +295,24 @@ Page<AddMealData, WechatMiniprogram.Page.CustomOption>({
   },
 
   onSubmitCustom() {
-    if (this.data.customSubmitting) return; // duplicate-tap guard
-    const toNum = (s: string): number => {
-      const n = Number(s);
+    if (this.data.customSubmitting) return;
+    const toNum = (value: string): number => {
+      const n = Number(value);
       return Number.isFinite(n) ? n : NaN;
     };
-    const input = {
-      name: this.data.customName,
-      brand: this.data.customBrand,
-      category: this.data.customCategory,
-      calories: toNum(this.data.customCalories),
-      protein: toNum(this.data.customProtein),
-      carb: toNum(this.data.customCarb),
-      fat: toNum(this.data.customFat),
-    };
+
     this.setData({ customSubmitting: true });
     try {
-      const food = foodCatalog.createAdHocFood(input);
-      // Refresh the list so the new ad-hoc food appears, then select it.
-      const results = foodCatalog.searchFoods(this.data.searchQuery);
-      this.setData({ searchResults: results });
+      const food = foodCatalog.createAdHocFood({
+        name: this.data.customName,
+        brand: this.data.customBrand,
+        category: this.data.customCategory,
+        calories: toNum(this.data.customCalories),
+        protein: toNum(this.data.customProtein),
+        carb: toNum(this.data.customCarb),
+        fat: toNum(this.data.customFat),
+      });
+      this.refreshSearch(this.data.searchQuery);
       this.selectFood(food);
       this.setData({ showCustomForm: false, customError: '' });
       wx.showToast({ title: '已添加自定义食品', icon: 'success' });
@@ -211,7 +323,6 @@ Page<AddMealData, WechatMiniprogram.Page.CustomOption>({
     }
   },
 
-  // ---- Portion ----
   onUnitChange(e: WechatMiniprogram.PickerChange) {
     this.setData({ selectedUnitIndex: Number(e.detail.value) });
     this.computePreview();
@@ -222,49 +333,225 @@ Page<AddMealData, WechatMiniprogram.Page.CustomOption>({
     this.computePreview();
   },
 
-  /** Recompute the live preview from the current food/unit/quantity. */
   computePreview() {
     const food = this.data.selectedFood;
-    if (!food) {
-      this.setData({ preview: null, previewText: null, previewError: '' });
-      return;
-    }
     const unit = this.data.portionUnits[this.data.selectedUnitIndex];
-    if (!unit) {
-      this.setData({ preview: null, previewText: null, previewError: '请选择份量单位' });
-      return;
-    }
-    const q = Number(this.data.quantity);
-    if (!Number.isFinite(q)) {
-      // Still editing (empty / partial) — show nothing, no error yet.
+    if (!food || !unit) {
       this.setData({ preview: null, previewText: null, previewError: '' });
       return;
     }
-    if (q <= 0) {
+
+    const quantity = Number(this.data.quantity);
+    if (!Number.isFinite(quantity)) {
+      this.setData({ preview: null, previewText: null, previewError: '' });
+      return;
+    }
+    if (quantity <= 0) {
       this.setData({ preview: null, previewText: null, previewError: '数量需大于 0' });
       return;
     }
+
     try {
-      const p = foodCatalog.computePreview(food, unit, q);
+      const preview = foodCatalog.computePreview(food, unit, quantity);
       this.setData({
-        preview: { grams: p.grams, ...p.nutrition },
-        previewText: {
-          grams: p.grams.toFixed(1),
-          calories: p.nutrition.calories.toFixed(1),
-          protein: p.nutrition.protein.toFixed(1),
-          carb: p.nutrition.carb.toFixed(1),
-          fat: p.nutrition.fat.toFixed(1),
-        },
+        preview: { grams: preview.grams, ...preview.nutrition },
+        previewText: toPreviewText(preview.grams, preview.nutrition),
         previewError: '',
       });
     } catch (err) {
-      this.setData({ preview: null, previewText: null, previewError: foodCatalog.toUserMessage(err) });
+      this.setData({
+        preview: null,
+        previewText: null,
+        previewError: foodCatalog.toUserMessage(err),
+      });
     }
   },
 
-  // ---- M3 boundary ----
-  onSave() {
-    // Intentionally NOT saving. Meal persistence is M3.
-    wx.showToast({ title: '餐食保存将在 M3 实现', icon: 'none' });
+  buildDraftItem(): DraftMealItem {
+    const food = this.data.selectedFood;
+    const unit = this.data.portionUnits[this.data.selectedUnitIndex];
+    const preview = this.data.preview;
+    if (!food || !unit || !preview) {
+      throw new Error('请先选择食品并完成份量预览');
+    }
+    const quantity = Number(this.data.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw new Error('数量需大于 0');
+    }
+
+    return {
+      draftKey: toDraftKey(),
+      food,
+      quantity,
+      portionLabel: unit.label,
+      portionGramsPerUnit: unit.gramsPerUnit,
+      grams: preview.grams,
+      nutrition: {
+        calories: preview.calories,
+        protein: preview.protein,
+        carb: preview.carb,
+        fat: preview.fat,
+      },
+      display: toPreviewText(preview.grams, {
+        calories: preview.calories,
+        protein: preview.protein,
+        carb: preview.carb,
+        fat: preview.fat,
+      }),
+    };
+  },
+
+  syncDraftTotal(nextItems?: DraftMealItem[]) {
+    const items = nextItems ?? this.data.draftItems;
+    if (items.length === 0) {
+      this.setData({ draftTotalText: null });
+      return;
+    }
+    const totals = foodCatalog.sumNutritionList(items.map((item) => item.nutrition));
+    const grams = items.reduce((sum, item) => sum + item.grams, 0);
+    this.setData({ draftTotalText: toPreviewText(grams, totals) });
+  },
+
+  syncSaveEnabled(
+    overrides: Partial<Pick<AddMealData, 'cloudReady' | 'activeProfileId' | 'saveSubmitting'>> = {},
+    nextItems?: DraftMealItem[],
+  ) {
+    const items = nextItems ?? this.data.draftItems;
+    const cloudReady = overrides.cloudReady ?? this.data.cloudReady;
+    const activeProfileId = overrides.activeProfileId ?? this.data.activeProfileId;
+    const saveSubmitting = overrides.saveSubmitting ?? this.data.saveSubmitting;
+    this.setData({
+      saveEnabled: !!cloudReady && !!activeProfileId && items.length > 0 && !saveSubmitting,
+    });
+  },
+
+  resetEditor(nextRequestId?: string) {
+    this.setData({
+      selectedFood: null,
+      selectedFoodId: '',
+      portionUnits: [],
+      selectedUnitIndex: 0,
+      quantity: '1',
+      preview: null,
+      previewText: null,
+      previewError: '',
+      editingItemIndex: -1,
+      currentRequestId: nextRequestId || this.data.currentRequestId,
+    });
+  },
+
+  onUpsertDraftItem() {
+    try {
+      const nextItem = this.buildDraftItem();
+      const nextItems = this.data.draftItems.slice();
+      const editingIndex = this.data.editingItemIndex;
+      if (editingIndex >= 0) {
+        nextItem.draftKey = nextItems[editingIndex].draftKey;
+        nextItems.splice(editingIndex, 1, nextItem);
+      } else {
+        nextItems.push(nextItem);
+      }
+      this.setData({
+        draftItems: nextItems,
+        saveError: '',
+      });
+      this.syncDraftTotal(nextItems);
+      this.syncSaveEnabled({}, nextItems);
+      this.resetEditor();
+      wx.showToast({ title: editingIndex >= 0 ? '已更新条目' : '已加入本餐', icon: 'success' });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '添加失败，请重试';
+      this.setData({ previewError: message });
+      wx.showToast({ title: message, icon: 'none' });
+    }
+  },
+
+  onEditDraftItem(e: WechatMiniprogram.BaseEvent) {
+    const index = Number(e.currentTarget.dataset.index);
+    const item = this.data.draftItems[index];
+    if (!item) return;
+    const portionUnits = foodCatalog.getPortionUnits(item.food._id);
+    const selectedUnitIndex = Math.max(
+      portionUnits.findIndex((unit) => unit.label === item.portionLabel),
+      0,
+    );
+    this.setData({
+      selectedFood: item.food,
+      selectedFoodId: item.food._id || '',
+      portionUnits,
+      selectedUnitIndex,
+      quantity: String(item.quantity),
+      editingItemIndex: index,
+    });
+    this.computePreview();
+  },
+
+  onCancelEdit() {
+    this.resetEditor();
+  },
+
+  onRemoveDraftItem(e: WechatMiniprogram.BaseEvent) {
+    const index = Number(e.currentTarget.dataset.index);
+    const nextItems = this.data.draftItems.filter((_, itemIndex) => itemIndex !== index);
+    const editingIndex = this.data.editingItemIndex;
+    this.setData({ draftItems: nextItems });
+    this.syncDraftTotal(nextItems);
+    this.syncSaveEnabled({}, nextItems);
+    if (editingIndex === index) {
+      this.resetEditor();
+    } else if (editingIndex > index) {
+      this.setData({ editingItemIndex: editingIndex - 1 });
+    }
+  },
+
+  async onSave() {
+    if (this.data.saveSubmitting) return;
+    if (!this.data.cloudReady) {
+      wx.showToast({ title: '当前离线，无法保存到云端', icon: 'none' });
+      return;
+    }
+    if (!this.data.activeProfileId) {
+      wx.showToast({ title: '请先选择家庭成员', icon: 'none' });
+      return;
+    }
+    if (this.data.draftItems.length === 0) {
+      wx.showToast({ title: '请先添加至少一项食品', icon: 'none' });
+      return;
+    }
+
+    this.setData({ saveSubmitting: true, saveError: '' });
+    this.syncSaveEnabled({ saveSubmitting: true });
+
+    try {
+      const created = await mealApi.createMeal({
+        requestId: this.data.currentRequestId,
+        familyProfileId: this.data.activeProfileId,
+        date: this.data.mealDate,
+        mealType: this.data.selectedMealType,
+        items: this.data.draftItems.map((item) => ({
+          food: item.food,
+          quantity: item.quantity,
+          portionLabel: item.portionLabel,
+        })),
+      });
+      const reloaded = await mealApi.getMeal(created._id);
+      const nextRequestId = mealApi.newMealRequestId();
+      this.setData({
+        draftItems: [],
+        draftTotalText: null,
+        lastSavedSummary: buildSavedMealSummary(reloaded),
+        currentRequestId: nextRequestId,
+      });
+      this.resetEditor(nextRequestId);
+      this.syncSaveEnabled({}, []);
+      wx.showToast({ title: '餐食已保存', icon: 'success' });
+    } catch (err) {
+      const message = mealApi.toUserMessage(err);
+      this.setData({ saveError: message });
+      wx.showToast({ title: message, icon: 'none' });
+    } finally {
+      this.setData({ saveSubmitting: false });
+      this.syncSaveEnabled({ saveSubmitting: false });
+    }
   },
 });

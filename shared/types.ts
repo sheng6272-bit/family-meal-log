@@ -102,6 +102,17 @@ export interface Food extends AuditFields {
   nutritionMeta: NutritionDataMetadata;
 }
 
+/** Stable snapshot of a food used when persisting historical meal items. */
+export interface FoodSnapshot {
+  foodId?: string;
+  name: string;
+  brand?: string;
+  category?: string;
+  per100g: NutritionPer100g;
+  source: FoodSource;
+  nutritionMeta: NutritionDataMetadata;
+}
+
 /** 4. A portion unit; may be generic or specific to a food. */
 export interface PortionUnit extends AuditFields {
   _id?: string;
@@ -115,9 +126,11 @@ export interface PortionUnit extends AuditFields {
 export interface MealItem {
   foodId?: string; // reference to a Food (optional for ad-hoc entries)
   foodName: string; // denormalized snapshot for stable history
+  foodSnapshot: FoodSnapshot;
   quantity: number; // number of portion units
   portionUnitId?: string;
   portionLabel: string; // snapshot, e.g. "碗"
+  portionGramsPerUnit: number; // snapshot of the selected portion size
   grams: number; // resolved gram weight (quantity * gramsPerUnit)
   nutrition: NutritionValues; // snapshot scaled to `grams`
   source: ItemSource;
@@ -128,6 +141,7 @@ export interface MealItem {
 export interface Meal extends AuditFields {
   _id?: string;
   ownerOpenid: string;
+  requestId: string; // client-generated id used for create idempotency
   familyProfileId: string;
   date: string; // YYYY-MM-DD (local day the meal belongs to)
   mealType: MealType;

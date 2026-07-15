@@ -1,305 +1,153 @@
-# Architecture — Family Meal Log MVP
+# Architecture - Family Meal Log MVP
 
-> Status: **M0 foundation ✅**, **M1 identity & family profiles ✅**, **M1.1 hardening ✅**
-> (acceptance tests green — 91 checks), **M2 food catalog & portion units ✅**
-> (acceptance tests green — 151 checks).
+> Status: **M0 done**, **M1 done**, **M2 done**, **M3 done**. Current verified
+> `npm run validate` baseline: **176 passed, 0 failed**.
 
 ## 1. High-level overview
 
-```
-+------------------------------------------------------+
-|              WeChat Mini Program (client)            |
-|  Pages (home, add-meal, profiles, profile-edit)      |
-|  Services: cloud wrapper, auth, profile, session,    |
-|           provider-neutral AI adapter                |
-|  Config: env (no secrets), labels (relation UI)      |
-|                     |                                |
-|          import type / shared logic                  |
-+---------------------|--------------------------------+
-                      |  (wx.cloud.callFunction / DB / storage)
-                      v
-+------------------------------------------------------+
-|                 Tencent CloudBase                    |
-|  Cloud Functions: login, profileApi, mealApi, aiAnalyze
-|  Database (document collections)                     |
-|  Storage (meal photos, later)                        |
-|  Function env vars: AI_PROVIDER, AI_API_KEY (secret) |
-+------------------------------------------------------+
-                      |  (future) provider-neutral call
-                      v
-              External AI provider (later)
+```text
+WeChat Mini Program
+  pages/              thin UI layer
+  services/           cloud wrapper + client adapters
+  lib/shared/         generated runtime copy
+          |
+          v
+Tencent CloudBase
+  login               server-trusted identity
+  profileApi          family profile management
+  mealApi             manual meal create/get
+  aiAnalyze           mock/future AI adapter
+          |
+          v
+shared/
+  types, validation, nutrition, services
+  single source of truth for domain rules
 ```
 
-Two independent layers of trust:
-- **Nutrition layer** (`shared/nutrition.ts`) is the single source of nutritional truth.
-- **AI layer** only produces *suggestions*; it can never write final nutrition directly.
+Two trust boundaries matter:
 
-## 2. Frontend architecture (Mini Program)
+- **Nutrition boundary:** final grams and nutrition values come from the shared layer.
+- **Identity boundary:** `openid` comes only from the server-side WeChat context.
 
-- **Native** WeChat Mini Program, **TypeScript**, strict mode.
-- **Pages** (`miniprogram/pages/*`): thin view + interaction; no direct vendor/SDK calls.
-  - `home` — active profile, daily totals placeholder, entry to manage profiles / onboarding.
-  - `add-meal` — **M2 food catalog & portion nutrition preview**: search/define a single food,
-    pick a portion unit + quantity, see a live grams + nutrition (kcal/protein/carb/fat) preview
-    with source/version metadata. **No meal is persisted** — the "保存这一餐" button is disabled
-    with an M3 note (meal save lands in M3).
-  - `profiles` — list / select / set default / create / edit (M1).
-  - `profile-edit` — create/edit form (M1).
-- **Services** (`miniprogram/services/*`):
-  - `cloud.ts` — the only place that touches `wx.cloud`; initializes CloudBase and exposes
-    `callFunction`. Degrades to offline mode when no env ID is configured.
-  - `auth.ts` — wraps the `login` cloud function; returns only a non-sensitive internal id.
-  - `profile.ts` — wraps the `profileApi` cloud function (list/create/update/setDefault/get).
-  - `session.ts` — bootstraps identity + profiles, persists the active profile id locally,
-    and resolves the active profile on launch (priority logic).
-  - `ai/ai-adapter.ts` — provider-neutral entry `analyzeMealPhoto()`; routes to the
-    `aiAnalyze` cloud function when available, else falls back to the local mock.
-  - `ai/mock-provider.ts` — deterministic offline suggestions.
-  - `food-catalog.ts` — **M2 client wrapper** over the shared food-catalog/portion services.
-    Reads the bundled seed catalog (offline-capable), searches foods, manages session-only
-    ad-hoc foods, merges portion units, computes the live preview, and maps `ServiceError`s to
-    Chinese messages. **No CloudBase calls, no `foods` writes, no openid.**
-- **Config** (`miniprogram/config/env.ts`): environment selection; **no secrets**, blank
-  CloudBase IDs by default; local override via `env.local.ts` (git-ignored) or CI injection.
-- **Shared imports:** client code imports **types** from `shared/*` using `import type`
-  (erased at compile time). Runtime shared logic executes **inside the cloud functions** via
-  the packaging step in §6 — and, **new in M2**, the same compiled runtime is also packaged to
-  `miniprogram/lib/shared/` so the **client** can `require('../lib/shared/index.js')` for the
-  food-catalog/portion services (the shared runtime is built *before* typecheck, so types come
-  from `import type` while the call is a runtime `require`). The client re-implements only tiny
-  pure helpers (e.g. `resolveActiveProfile`) and thin wrappers (e.g. `food-catalog.ts`) that are
-  covered by tests.
+## 2. Frontend architecture
 
-## 3. CloudBase architecture
+- Native WeChat Mini Program, TypeScript strict mode.
+- Pages stay a **thin view layer**: local state, user events, rendering.
+- Services are the client boundary:
+  - `cloud.ts`: the only `wx.cloud` touchpoint.
+  - `auth.ts`: wraps `login`.
+  - `profile.ts`: wraps `profileApi`.
+  - `session.ts`: resolves the active profile and persists only the profile id locally.
+  - `food-catalog.ts`: shared wrapper for seed search, ad-hoc foods, units, and preview.
+  - `meal.ts`: wraps `mealApi.create` / `mealApi.get`, generates `requestId`, maps errors.
+  - `ai/*`: optional AI adapter path, still non-essential to manual logging.
 
-- **Database:** document collections (see §4 and `docs/DATA_MODEL.md`).
-- **Storage:** meal photos, addressed by CloudBase `fileID` (M6).
-- **Cloud functions:** the trusted boundary. They derive identity from the WeChat context,
-  re-validate inputs with the shared validators/services, and recompute nutrition with the
-  shared nutrition layer (meals, later). Clients are never trusted for identity or final totals.
-- **Environments:** separate `dev` and `prod` CloudBase environments; the client selects one
-  via `env.ts`. Secrets live only in function environment variables per environment.
+Current page roles:
 
-## 4. Database collections
+- `home`: active profile and entry points.
+- `profiles` / `profile-edit`: M1 profile management.
+- `add-meal`: M3 manual meal workflow. The page:
+  - shows the active profile, date, and meal type,
+  - searches bundled foods or defines ad-hoc foods,
+  - previews one item at a time through shared logic,
+  - builds a multi-item local draft meal,
+  - saves through `mealApi.create`,
+  - reloads through `mealApi.get`,
+  - blocks save cleanly when offline or no active profile is selected.
 
-| Collection | Key fields | Notes / access |
-|-----------|------------|----------------|
-| `users` | `openid`, `defaultFamilyProfileId` | one per WeChat user; **server-only** identity; `defaultFamilyProfileId` is the sole default source of truth |
-| `family_profiles` | `ownerOpenid`, `name`, `relation` | owner-only; M1 CRUD via `profileApi`; **no `isDefault` stored** |
-| `idempotency_keys` | `ownerOpenid`, `operation`, `requestId`, `resultId` | request-level idempotency for create ops (M1.1) |
-| `foods` | `name`, `per100g`, `source`, `nutritionMeta`, `ownerOpenid?`, `isSaved` | system foods readable; user foods owner-only (M2) |
-| `portion_units` | `label`, `gramsPerUnit`, `foodId?`, `isDefault?` | generic + food-specific (M2) |
-| `meals` | `ownerOpenid`, `familyProfileId`, `date`, `mealType`, `items[]`, `totals` | owner-only; indexed by (`ownerOpenid`,`familyProfileId`,`date`) (M3) |
-| `recipes` | `ownerOpenid`, `name`, `servings`, `ingredients[]`, `perServing` | owner-only (M5) |
-| `ai_analyses` | `ownerOpenid`, `photoFileId`, `provider`, `status`, `suggestions[]` | owner-only; advisory records (M7) |
+## 3. Shared runtime packaging
 
-Schemas are defined in `shared/types.ts`; see `docs/DATA_MODEL.md`.
+`shared/` is the only implementation of validation, nutrition math, and meal/profile logic.
 
-**Required indexes (see `docs/SECURITY.md`):**
-- `users.openid` — unique (single-user-per-openid; upsert idempotency).
-- `family_profiles.ownerOpenid` + `family_profiles.createdAt` — owner-scoped list, createdAt ascending.
-- `idempotency_keys.(ownerOpenid, operation, requestId)` — composite (**currently
-  non-unique**); **promote to unique** at M3 to make the key insert the atomic idempotency
-  gate (see §5b).
+`npm run build:shared`:
 
-## 5. Cloud-function responsibilities
-
-| Function | Responsibility (target) | v0.1 status |
-|----------|-------------------------|-------------|
-| `login` | Derive caller identity server-side (openid/unionid from context); upsert `users`; return client-safe `{id, defaultFamilyProfileId}`. **Never returns openid.** | **M1 ✅** |
-| `profileApi` | Server-trusted family-profile management: `list` / `create` / `update` / `setDefault` / `get`. Owner-scoped; client-safe DTOs; input normalized + validated with shared logic. | **M1 ✅** |
-| `mealApi` | Create/update/delete/list meals; **re-validate** with shared validators; **recompute** `totals` via shared nutrition; enforce per-user access. | placeholder (routes only) |
-| `aiAnalyze` | Provider-neutral photo analysis; select provider by `AI_PROVIDER` env var; return advisory suggestions; never persist final nutrition. | mock provider implemented |
-
-### profileApi dispatch (M1)
-
-- `list` → caller's profiles, createdAt ascending, client-safe shape (no ownerOpenid); each
-  DTO's `isDefault` is **computed** as `profile.id === user.defaultFamilyProfileId`.
-- `create` → normalize + validate; ownership set server-side; first profile auto-default.
-  Accepts a client `requestId` for **request-level idempotency** (see §5b); **no name-based
-  deduplication** — the same owner may create profiles with identical names.
-- `update` → editable fields only (`name`, `relation`); ownership enforced; unknown/ownership
-  fields rejected.
-- `setDefault` → sets **only** `users.defaultFamilyProfileId` after ownership check; never
-  mutates any profile document.
-- `get` → one owned profile (used by the client when needed); `isDefault` computed as above.
-
-### 5b. Idempotency & default-profile single source of truth (M1.1)
-
-**Best-effort request idempotency（尽力式请求幂等）.** Profile create uses *client in-flight
-protection plus server-side request replay handling*: the client emits a stable `requestId`
-per edit session; the server records `(ownerOpenid, operation='create', requestId)` in
-`idempotency_keys` and replays the original result on a repeat. This is **best-effort**, **not**
-strict/atomic idempotency (see DATA_MODEL.md idempotency note and SECURITY.md §3). Key facts:
-- **Same `requestId`** → normally returns the original result (no duplicate created).
-- **Different `requestId`s** → always a new intent, so profiles with identical names are allowed.
-- The read→create→write-key sequence is **not atomic** (residual concurrency race).
-- The **UI in-flight guard** reduces the practical risk for this single-owner family MVP.
-- A future **generic atomic** solution should claim the key **before** entity creation (unique
-  composite index); scheduled for **M3**, when meal creation also needs idempotency.
-
-**No name-based dedup.** Earlier M1 drafts risked treating `name` (or `name + relation`) as a
-uniqueness key. That is removed: names are free-form and non-unique per owner (two children
-named "宝宝" are valid). Duplicate *submissions* are handled at two layers instead:
-
-1. **Client UI guard** — a `submitting` in-flight flag on the profiles/profile-edit pages
-   prevents a second tap while a create call is outstanding.
-2. **Request-level idempotency** — the client generates a stable `requestId`
-   (`req_<time36>_<random>`) once per edit session and sends it with `create`. The server
-   looks up `(ownerOpenid, operation='create', requestId)` in `idempotency_keys`; a hit
-   returns the originally created profile, a miss creates the profile and records the key.
-   A *different* `requestId` is always a new intent, even with identical `name`/`relation`.
-   `requestId` is scoped by the trusted `ownerOpenid`, so different users may reuse the same
-   string safely.
-
-> **Residual race (documented, mitigated).** The read→create→write-key sequence is not
-> atomic; two simultaneous same-`requestId` calls could both miss the lookup. Mitigated by the
-> UI guard and single-user tap concurrency. The **generic race-free** design deferred to M3:
-> a **unique** composite index on `(ownerOpenid, operation, requestId)` so the key insert
-> itself is the gate — a duplicate-key error means "already processed, return `resultId`."
-
-**Default = single source of truth.** `users.defaultFamilyProfileId` is the only persisted
-default. `family_profiles` has **no** `isDefault` field. `setDefault` writes only the user
-record; the client-facing `isDefault` is computed in the DTO. A stale/missing default id
-yields no profile marked default (safe fallback, no repair needed).
-
-## 6. Shared-runtime packaging (M1)
-
-M0 used compile-time-only `import type` from `shared/`. M1 needs the shared **runtime**
-(validators, user/profile services, repository contract) to execute inside cloud functions,
-with no duplicated, hand-maintained validators and no symlinks.
-
-Approach (`scripts/build-shared.mjs`, wired into `npm run build:shared`):
-1. Compiles `shared/` (TypeScript) to CommonJS in `shared/dist/`.
-2. Copies the compiled runtime into each cloud function's `lib/shared/`
-   (`cloudfunctions/<fn>/lib/shared/`), preserving the directory layout
-   (`lib/shared/services/profile-service.js`, etc.).
-3. Copies the **same** compiled runtime into the **client** package
-   (`miniprogram/lib/shared/`) so the Mini Program can `require('../lib/shared/index.js')`
-   for the shared food-catalog/portion services. This is the M2 extension of the original
-   cloud-function-only mechanism.
-4. Writes a `{ "type": "commonjs" }` marker into each `lib/shared/` so Node resolves the
-   copied `.js` as CommonJS.
+1. Compiles `shared/` to CommonJS in `shared/dist/`.
+2. Copies the runtime into each cloud function under `cloudfunctions/*/lib/shared/`.
+3. Copies the same runtime into `miniprogram/lib/shared/`.
 
 Properties:
-- **Single source of truth:** `shared/*.ts` is the only implementation; cloud functions and the
-  client both `require('./lib/shared/...')` / `'../lib/shared/...'`.
-- **No symlinks** (Windows-friendly) — plain recursive copy.
-- **Generated, not committed:** `shared/dist/`, `cloudfunctions/<fn>/lib/shared/`, and
-  `miniprogram/lib/shared/` are all git-ignored (see `.gitignore`). Only `shared/*.ts` is tracked.
-- **Works on Windows**, no native tooling.
-- **Included in `npm run validate`:** the build runs before the test, and the test asserts the
-  shared runtime is present in the affected cloud packages (`login`, `profileApi`) **and** in
-  `miniprogram/lib/shared/`, and that the cloud functions `require` it.
-- **Before deploying** a cloud function (or building the Mini Program) from WeChat DevTools, run
-  `npm run build:shared` so `lib/shared/` is regenerated into the function folder and the client.
 
-## 7. Photo-storage workflow (M6, planned)
+- No symlinks.
+- Generated artifacts stay git-ignored.
+- Cloud functions and the Mini Program run the same domain logic.
 
-1. Client uploads the meal photo to CloudBase Storage → receives a `fileID`.
-2. Client stores `fileID` on the `meals` record (`photoFileId`) and/or passes it to
-   `aiAnalyze`.
-3. `aiAnalyze` reads the photo by `fileID` (server-side) when a real provider is integrated.
-4. Suggestions are returned for **confirmation/correction**; only confirmed items contribute
-   to nutrition, recomputed by the shared layer.
+## 4. CloudBase architecture
 
-Photos are private to the owner; access is scoped via CloudBase security rules.
+Cloud functions are the trusted server boundary.
 
-## 8. Future AI adapter design
+- `login` derives identity from `cloud.getWXContext().OPENID`.
+- `profileApi` manages owner-scoped family profiles.
+- `mealApi` handles M3 meal create/get with shared validation and server recomputation.
+- `aiAnalyze` remains mock-first and optional.
 
-- **Contract:** `AiProvider { name; analyze(req): AiAnalysisResult }` and the request/result
-  shapes in `shared/types.ts`.
-- **Selection:** server-side, via `AI_PROVIDER` env var (`mock` → real later).
-- **Isolation:** the AI layer is strictly separate from the nutrition layer. AI output maps
-  to *suggested* foods/grams; the user confirms; nutrition is recomputed from confirmed input.
-- **Graceful degradation:** any AI failure/absence returns an empty/failed result and the
-  client falls back to manual logging.
+The client is **not trusted** for:
 
-## 9. Security boundaries (M1 emphasis)
+- `openid`
+- final `totals`
+- system-food nutrition values
+- ownership of profiles or meals
 
-- **Identity is server-side only.** Every cloud function derives the caller from the trusted
-  WeChat context (`cloud.getWXContext().OPENID`). The client **never sends, receives, or
-  stores `openid`**. It receives only a non-sensitive internal user document id and the
-  default profile id. `openid` remains a server-side identity/ownership value.
-- **Client-safe responses.** `login` returns `{ id, defaultFamilyProfileId }`; `profileApi`
-  returns profiles without `ownerOpenid`. Ownership is never leaked to the client.
-- **Authorization is enforced server-side.** Reads/writes are scoped by the server-derived
-  openid. Cross-user access (list/update/setDefault) is rejected with `forbidden`/`not_found`
-  and never leaks another user's data.
-- **No client writes to user-owned collections.** `users` and `family_profiles` are written
-  only through the trusted cloud functions. The client has no database write path.
-- **Validation is shared + server-trusted.** Inputs are normalized/validated with the shared
-  logic on the server; unknown and ownership fields submitted by the client are dropped.
-- **Secrets:** no API keys, AI secrets, CloudBase env IDs, or WeChat appid in client code or
-  the repo. Client config uses blank placeholders + git-ignored local overrides. AI secrets
-  live only in CloudBase function environment variables.
-- **Trust rule (meals, later):** nutrition totals are recomputed on the server; client-sent
-  totals are treated as untrusted and overwritten.
+## 5. Collections
 
-See `docs/SECURITY.md` for collections, indexes, recommended CloudBase security rules, and
-dev/prod guidance.
+| Collection | Purpose | Current status |
+|------------|---------|----------------|
+| `users` | one record per WeChat user; stores `defaultFamilyProfileId` | M1 |
+| `family_profiles` | owner-scoped family members | M1 |
+| `idempotency_keys` | request replay for profile create | M1 |
+| `foods` | future reusable foods | later |
+| `portion_units` | future persisted units if needed | later |
+| `meals` | owner-scoped meal records with embedded snapshots | M3 |
+| `recipes` | recipe reuse | M5 |
+| `ai_analyses` | advisory AI records | M7 |
 
-## 10. Development and production environments
+## 6. Current meal design (M3)
 
-- Two CloudBase environments: `dev` and `prod`, each with its own DB, storage, functions and
-  env vars.
-- Client selects the target in `miniprogram/config/env.ts` (`ACTIVE_ENV`) with the actual
-  env ID injected locally (`env.local.ts`) or by CI — never committed.
-- Recommended flow: develop against `dev`; promote via Git; deploy functions (run
-  `npm run build:shared` first) and switch `ACTIVE_ENV=prod` for production builds.
+Meal save is intentionally narrow in this checkpoint:
 
-## 11. M1 product decisions (recorded)
+- `mealApi.create` accepts draft meal input from the client.
+- The server validates the target family profile belongs to the caller.
+- System foods are canonicalized from `shared/data/system-foods.ts`.
+- Ad-hoc foods are normalized through the shared ad-hoc food service.
+- Portion labels are resolved by shared portion logic.
+- Each stored item snapshots:
+  - `foodSnapshot`
+  - `portionGramsPerUnit`
+  - `grams`
+  - `nutrition`
+- The server recomputes `totals` from confirmed items.
+- `mealApi.get` reloads the trusted stored record immediately after create.
 
-- **Single-owner model.** One WeChat account owns and manages multiple family-member
-  profiles. No multi-WeChat-user household sharing, invitations, roles, or cross-account
-  access in v0.1.
-- **Family-profile deletion is deferred.** M1 implements create / list / update / select /
-  set-default only. Hard deletion is out of scope; archive/soft-delete will be designed later
-  (documented, not implemented).
-- **Local natural-day rule.** Elsewhere in the app, a meal belongs to the device's local
-  calendar day `YYYY-MM-DD`, `00:00–23:59`. This convention is recorded now; meal functionality
-  arrives in M3.
-- **No nutrition goals / medical attributes in M1.** Profiles carry only `name` and
-  `relation` for now.
+Client-safe DTO rule:
 
-## 12. M1.1 hardening decisions (recorded)
+- Responses exclude `ownerOpenid`.
+- Responses exclude `requestId`.
 
-- **Names are not unique.** Name-based profile deduplication is removed. The same owner may
-  create multiple profiles with identical `name` (or `name + relation`).
-- **Idempotency is request-scoped, not content-scoped.** Duplicate submissions are prevented
-  by a client `requestId` + the `idempotency_keys` collection, keyed by
-  `(ownerOpenid, operation, requestId)`, plus a UI in-flight guard. Residual non-atomic race
-  is documented; the race-free unique-index design is deferred to M3.
-- **One source of truth for the default profile.** `users.defaultFamilyProfileId` is the only
-  persisted default state; `family_profiles` stores no `isDefault`; the client `isDefault`
-  flag is computed in the DTO; stale/missing default → safe fallback.
+## 7. Request replay and idempotency
 
-## 13. M2 food catalog & portion units (recorded)
+Two request-replay patterns currently exist:
 
-**Scope.** M2 is the *single-food* catalog + portion + nutrition-preview milestone. It does
-**not** save meals, write `foods` to CloudBase, or add any cloud function. All nutrition math,
-search, unit merging and ad-hoc creation run in the **shared layer** (`shared/services/*`),
-packaged to both the cloud functions and `miniprogram/lib/shared/` (§6).
+- **Profiles:** `idempotency_keys` records `(ownerOpenid, operation, requestId)`.
+- **Meals:** the current M3 flow queries `meals` by `(ownerOpenid, requestId)` before and after
+  insert.
 
-**Key decisions:**
-- **Two "source" concepts kept separate.** `Food.source` (`system`/`user`/`recipe`) is the
-  business origin of the food. `Food.nutritionMeta` (`{ source, version }`) is the provenance
-  of the *nutrition numbers*. System seed → `nutritionMeta.source: 'curated_mvp_seed'`; ad-hoc
-  → `nutritionMeta.source: 'user_entered'`. We never claim an external authority (USDA/brand)
-  unless verified.
-- **Seed catalog is offline.** `shared/data/system-foods.ts` ships ≥ 11 foods (主食/肉类/水果/
-  蔬菜/奶类/蛋/水产…) with realistic per-100g values + food-specific portion units; it is bundled
-  into the Mini Program runtime and **never** written to CloudBase in M2.
-- **Units.** Generic `g` (gramsPerUnit=1) and `ml` (≈1 g) are always available. Food-specific
-  units are sorted **before** generic, de-duplicated by label. The default unit is the food's
-  `isDefault` unit, else `g`. Selecting a new food resets the quantity to `1`.
-- **Calculation is pure & shared.** `quantity × gramsPerUnit → grams`; `per100g × grams/100 →
-  nutrition` (rounded to 1 decimal). The Mini Program `Page` holds **no** nutrition formulas —
-  it only calls `food-catalog.computePreview` and renders.
-- **Ad-hoc foods are session-only.** `createAdHocFood` trims the name (empty rejected), requires
-  finite non-negative macros, forces `source:'user'`, `isSaved:false`, drops any client-supplied
-  unknown field (incl. `ownerOpenid`), and **does not persist**. The returned object is usable
-  immediately in the same session.
-- **Explicit M2 boundary.** The add-meal "保存这一餐" button is **disabled** and shows "餐食保存将在
-  M3 实现" — it never fakes success. No `mealApi`, no `meals` collection, no daily history, no
-  recipe, no photo upload, no AI recognition in M2.
+Both are **best-effort**, not atomic. This is honest and intentional in the docs. Recommended
+future hardening:
+
+- unique composite index for profile replay,
+- unique composite index on `meals(ownerOpenid, requestId)` for atomic meal replay.
+
+## 8. Security rules of the architecture
+
+- The client never sends, receives, logs, or stores `openid`.
+- The client never writes directly to user-owned collections.
+- Unknown fields from the client are ignored or dropped server-side.
+- Meal nutrition is always recomputed at the trusted boundary.
+- Offline/manual preview remains available even when cloud save is blocked.
+
+## 9. Deferred work beyond M3
+
+- M4: daily history, edit, delete.
+- M5: saved foods and recipes.
+- M6: photo upload and private storage flow.
+- M7: mock AI confirmation flow.
+- M8: real AI provider behind the same interface.

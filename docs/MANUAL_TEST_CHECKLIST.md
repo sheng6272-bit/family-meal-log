@@ -1,120 +1,99 @@
-# Manual Acceptance Test Checklist — M1 & M2
+# Manual Acceptance Test Checklist - M1 to M3
 
-These steps verify M1 / M2 behaviour in the real WeChat runtime (Developer Tools and a phone).
-The automated `npm run validate` already covers the logic/authorization; this checklist
-covers the on-device experience that cannot be exercised headlessly.
+These steps cover behavior that cannot be proven headlessly. Automated logic and structural
+checks already run under `npm run validate`; this checklist is for WeChat DevTools and a real
+phone.
 
-> Prereqs: a CloudBase `dev` environment exists; `miniprogram/config/env.local.ts` sets a
-> real `cloudEnvId` for `dev`; cloud functions `login` and `profileApi` are uploaded (after
-> `npm run build:shared`).
+Prereqs:
 
-## A. WeChat Developer Tools
+- a CloudBase `dev` environment exists,
+- `miniprogram/config/env.local.ts` points at that `dev` env,
+- `npm run build:shared` has been run,
+- cloud functions `login`, `profileApi`, and `mealApi` are uploaded.
 
-1. **First login**
-   - Clear storage (Tools → Clear Cache → Clear All), compile & run.
-   - Expected: app boots; after `login`, the home screen shows either onboarding
-     ("还没有家庭成员") or an active profile. No crash; no openid shown anywhere.
+## A. WeChat DevTools - profiles (M1)
 
-2. **Create the first profile**
-   - Tap "创建第一个家庭成员" → enter name "爸爸", relation "本人" → 创建成员.
-   - Expected: returns to profiles/home; the new profile is shown and marked **默认** and
-     **当前**.
+1. Clear local storage and run the app.
+   Expected: app boots cleanly and either shows onboarding or an active profile.
+2. Create the first profile.
+   Expected: it becomes both current and default.
+3. Create a second profile.
+   Expected: both profiles are listed and ownership remains scoped to the current account.
+4. Switch between profiles.
+   Expected: the current profile changes immediately.
+5. Set the second profile as default.
+   Expected: the default badge moves and later launches resolve that profile.
+6. Reopen the Mini Program.
+   Expected: active/default resolution follows the documented priority order.
+7. Edit a profile name or relation.
+   Expected: the original profile updates in place; no duplicate is created.
+8. Try invalid profile input.
+   Expected: empty name is blocked and relation stays limited to valid options.
 
-3. **Confirm it becomes active and default**
-   - Home shows "爸爸" as the active profile.
-   - (Backend) `users.defaultFamilyProfileId` equals this profile's `_id`.
+## B. WeChat DevTools - food search and preview (M2)
 
-4. **Create a second profile**
-   - Profiles → 添加成员 → "妈妈", relation "配偶".
-   - Expected: two profiles listed; "爸爸" still default.
+1. Open add-meal.
+   Expected: search UI, meal type selector, and current profile card are visible.
+2. Leave search empty.
+   Expected: bundled seed foods are listed.
+3. Search by a Chinese food name.
+   Expected: partial matching works.
+4. Search by category.
+   Expected: category filtering works.
+5. Select a seed food.
+   Expected: food-specific units appear before generic units.
+6. Change unit and quantity.
+   Expected: grams and macros update live.
+7. Open the ad-hoc food form.
+   Expected: fields for name, brand, category, and per-100g macros appear.
+8. Create a valid ad-hoc food.
+   Expected: it becomes immediately selectable for preview.
+9. Try invalid ad-hoc input.
+   Expected: empty name, negative macros, or non-numeric input show clear errors.
+10. Blank `cloudEnvId` temporarily and repeat search/preview.
+   Expected: bundled search and preview still work offline.
 
-5. **Switch between profiles**
-   - Tap 选择 on "妈妈". Expected: home now shows "妈妈" as current. Server default unchanged
-     (still "爸爸").
+## C. WeChat DevTools - manual meal logging (M3)
 
-6. **Set the second profile as default**
-   - On "妈妈", tap 设为默认. Expected: "妈妈" gets the **默认** badge; later logins resolve
-     "妈妈" as the default.
+1. Restore a valid env and ensure an active profile is selected.
+2. Open add-meal.
+   Expected: save button is present but stays disabled until at least one draft item exists.
+3. Add a first draft item.
+   Expected: it appears in the draft list and the total card appears.
+4. Add a second draft item.
+   Expected: totals equal the sum of both item previews.
+5. Edit one draft item.
+   Expected: the row updates in place and totals change accordingly.
+6. Remove one draft item.
+   Expected: the row disappears and totals shrink accordingly.
+7. Save the meal.
+   Expected: success toast, draft clears only after success, and a recent-saved summary appears.
+8. Confirm reload behavior.
+   Expected: the recent-saved summary reflects the persisted meal returned by `mealApi.get`.
+9. Simulate missing active profile.
+   Expected: save stays disabled and the page asks the user to choose a family member first.
+10. Simulate offline save.
+    Expected: item preview still works, but save is blocked with a clear offline message and no
+    fake success.
+11. Restore connectivity and save again.
+    Expected: the existing draft can be retried successfully without rebuilding it from scratch.
 
-7. **Close and reopen the Mini Program**
-   - Stop and re-run (or kill + reopen on phone). Expected: the last selected profile ("妈妈"
-     if set default, else last active) is restored per the active-profile priority.
+## D. Real phone
 
-8. **Confirm remembered/default behaviour**
-   - After reopen, home reflects the expected active profile without re-creating anything.
+Repeat the key profile, search/preview, and meal-save scenarios on a real device using a preview
+or experience build against the `dev` environment.
 
-9. **Edit a profile**
-   - Profiles → 编辑 on "爸爸" → change name to "老爸" → 保存修改.
-   - Expected: list updates; no new profile created; ownership unchanged.
+Pay special attention to:
 
-10. **Attempt invalid input**
-    - Create/edit with empty name → "请输入姓名"; submit blocked.
-    - Relation picker only allows the 5 valid values (no invalid option reachable).
-
-11. **Simulate network / cloud-function failure**
-    - Temporarily misconfigure the env ID (blank `cloudEnvId`) and run.
-    - Expected: home shows "离线模式 / 未配置云环境"; profile features show a clear notice;
-      no silent "success". Restore the env ID afterwards.
-
-## B. Real phone (preview / experience version)
-
-- Repeat steps 1–10 via a preview QR / experience version against the **dev** environment.
-- Verify Chinese messages render correctly and taps (create/select/set-default) behave as in
-  Tools.
-- Kill the app from the multitask view and reopen to confirm the persisted active/default
-  behaviour on a real device.
-
-## C. M2 — Food catalog & portion units (add-meal page)
-
-> Prereqs: `miniprogram/lib/shared/` is generated (`npm run build:shared`). The add-meal page
-> uses the **bundled seed catalog**, so it works with or without a cloud env configured.
-
-1. **Open add-meal** — Home → 添加一餐. Expected: meal-slot selector visible; search box,
-   empty result area, and a disabled "保存这一餐" button. No crash.
-2. **Empty search** — leave the box empty. Expected: all seed foods listed (≥ 8), each with
-   name, category and per-100g hint.
-3. **Chinese partial search** — type "米饭". Expected: cooked white rice appears; partial
-   match works.
-4. **Category search** — type "肉类". Expected: only meat foods listed; each row's category is
-   肉类.
-5. **Case-insensitive English** — (if any English names present) search "APPLE" and "apple"
-   return the same set.
-6. **No-match** — type "zzz_no_such_food". Expected: empty list, no crash, a clear empty
-   hint.
-7. **Whitespace trim** — search " 米饭 " (padded). Expected: same results as "米饭".
-8. **Select a seed food** — tap cooked white rice. Expected: portion-unit picker shows the
-   food-specific units first (碗 / 小碗 …) followed by `g` and `ml`.
-9. **Default unit preselected** — for rice the default (碗) is highlighted.
-10. **Quantity default** — quantity field shows `1` after selecting a food.
-11. **Unit change** — switch to `g`. Expected: preview grams updates to `quantity × 1`.
-12. **Quantity change** — set quantity `2`. Expected: grams double and kcal/protein/carb/fat
-    double vs quantity `1`.
-13. **Fractional + bowl** — pick 碗 (≈150 g) and quantity `1.5`. Expected: ~225 g and
-    proportionally scaled nutrition.
-14. **One-decimal preview** — nutrition values show exactly one decimal (e.g. 174.0 kcal).
-15. **Source/version metadata** — the selected seed food shows `curated_mvp_seed` / `1`
-    (provenance of the nutrition numbers, distinct from business `source`).
-16. **Open custom form** — tap 自定义食品. Expected: form with name / brand / category / 4
-    per-100g number inputs appears.
-17. **Valid custom food** — enter "盐", kcal 0 / protein 0 / carb 0 / fat 0 → 添加. Expected:
-    the food is added and immediately selectable for a preview (session-only).
-18. **Custom metadata** — the ad-hoc food shows `user_entered` / `1` provenance.
-19. **Invalid: empty name** — submit with blank name → error "食品名称不能为空"; not added.
-20. **Invalid: negative calories** — enter name "x", calories `-5` → error; not added.
-21. **Invalid: non-numeric macro** — enter a letter in a macro field → error; not added.
-22. **Duplicate-tap guard** — rapidly tap 添加 twice on a valid form → exactly one food is
-    added (no double submit).
-23. **No save in M2** — tap 保存这一餐. Expected: button is disabled and a note "餐食保存将在
-    M3 实现" is shown; **no** network call to `mealApi` and **no** `meals` record is created
-    (verify the Network panel is empty on tap).
-24. **Offline** — with `cloudEnvId` blank, repeat steps 2–15. Expected: search + preview still
-    work (seed catalog is bundled); no cloud call required.
+- Chinese copy rendering,
+- tap handling,
+- active-profile persistence across app restarts,
+- successful meal save and recent-saved summary display.
 
 ## Notes
 
-- **Deletion** is intentionally absent in M1 (deferred) — there is no delete control.
-- **Ownership** cannot be exercised manually; it is enforced server-side. To sanity-check
-  isolation, log in with a second test WeChat account and confirm it sees only its own
-  profiles (empty initially), never the first account's data.
-- **M2 does not persist anything.** Ad-hoc foods live only for the session; meals are saved in
-  M3. The add-meal save button is intentionally disabled.
+- Ownership isolation is primarily covered by automated tests; a second test account can be used
+  for a manual sanity check if available.
+- Ad-hoc foods remain session-level inputs. In M3 they persist only as snapshots inside saved
+  meals, not yet as reusable saved-food records.
+- Any step not run on a real device must remain marked as pending manual verification.

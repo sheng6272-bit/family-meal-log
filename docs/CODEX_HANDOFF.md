@@ -1,144 +1,110 @@
 # CODEX_HANDOFF.md - Family Meal Log MVP
 
-> **Last verified date:** 2026-07-15
-> **Last verified branch:** `feature/mvp-completion`
-> **Last verified master commit:** `d39e520` (`fix: handle CRLF in env ignore validation (#2)`)
-> **Current verified integration base:** `feature/mvp-completion` @ `9faf440`
+> Last verified date: 2026-07-15
+> Last verified branch: `feature/mvp-completion`
+> Last verified master commit: `d39e520` (`fix: handle CRLF in env ignore validation (#2)`)
+> Current verified integration branch: `feature/mvp-completion`
 
-This file is a living project-state document. `AGENTS.md` holds the permanent
-rules; this handoff records what is actually verified right now.
-
----
+This file is the current verified handoff snapshot. `AGENTS.md` holds permanent operating rules.
 
 ## 1. Repository identity
 
-- **Repository URL:** https://github.com/sheng6272-bit/family-meal-log.git
-- **Default branch:** `master`
-- **Main stack:** Native WeChat Mini Program (TypeScript strict) + Tencent CloudBase
-- **Package manager:** `npm`
-- **Primary validation command:** `npm run validate`
-- No real CloudBase env IDs, appid, tokens, or `openid` are committed.
+- Repository URL: https://github.com/sheng6272-bit/family-meal-log.git
+- Default branch: `master`
+- Stack: Native WeChat Mini Program + TypeScript strict + Tencent CloudBase
+- Primary validation command: `npm run validate`
 
-## 2. Verified branch and PR state
+## 2. Verified branch state
 
-Verified from local Git plus the GitHub connector on 2026-07-15:
+Verified on 2026-07-15:
 
-- `master` -> `d39e520`, tracks `origin/master`
-- `feature/m2-food-catalog-portions` -> `28f2916`, tracks `origin/feature/m2-food-catalog-portions`
-- `chore/codex-agent-guidance` -> `71dd76d`, doc-only branch that introduced `AGENTS.md` and the original handoff
-- `feature/mvp-completion` -> local integration branch based on verified M2, plus the guidance docs
+- `master` -> `d39e520`
+- `feature/m2-food-catalog-portions` -> `28f2916`
+- `chore/codex-agent-guidance` -> `71dd76d`
+- `feature/mvp-completion` -> integration branch based on verified M2 plus guidance docs
 
-GitHub PR state:
+GitHub status already confirmed earlier in the thread:
 
-- PR `#1` (`feat: add identity and family profile management`) is **merged**
-- PR `#2` (`fix: handle CRLF in env ignore validation`) is **merged**
-- No open PR is currently confirmed for `feature/m2-food-catalog-portions`
-- No draft PR is currently confirmed for `feature/mvp-completion`
+- PR `#1` merged
+- PR `#2` merged
+- no open PR currently confirmed for `feature/mvp-completion`
 
 ## 3. Milestone status
 
-- **M0 - Foundation & shell:** done and merged to `master`
-- **M1 - Identity & family profiles:** done and merged to `master`
-- **M2 - Food catalog & portion units:** implemented, verified, **not merged to `master`**
-- **M3-M8:** not implemented yet on this handoff snapshot
+- M0: done and merged to `master`
+- M1: done and merged to `master`
+- M2: implemented and verified, not yet merged to `master`
+- M3: implemented and verified on `feature/mvp-completion`
+- M4-M8: not implemented yet
 
-Important nuance for M2:
+## 4. Validation baselines
 
-- The original M2 implementation lives on `feature/m2-food-catalog-portions`
-- The current working branch `feature/mvp-completion` starts from that M2 lineage
-- During verification, one real defect was found and fixed:
-  - `miniprogram/app.ts` used a hard import of the git-ignored `miniprogram/config/env.local.ts`
-  - that made `npm run validate` fail in a clean clone/worktree
-  - the fix now loads local overrides only when the file exists, otherwise the app stays in the documented offline shell mode
-- Validation coverage was extended so this clean-checkout guarantee is tested
+| Lineage | Date | Command | Result |
+|---------|------|---------|--------|
+| `master` (M0+M1) | 2026-07-15 | `npm run validate` | 91 passed, 0 failed |
+| `feature/m2-food-catalog-portions` historical baseline | 2026-07-14 | `npm run validate` | 151 passed, 0 failed |
+| `feature/mvp-completion` verified M2 baseline | 2026-07-15 | `npm run validate` | 152 passed, 0 failed |
+| `feature/mvp-completion` current M3 checkpoint | 2026-07-15 | `npm run validate` | 176 passed, 0 failed |
 
-## 4. Verified validation baselines
+Manual DevTools and real-device checks remain pending until a human runs them.
 
-| Lineage | Verified | Command | Result |
-|---------|----------|---------|--------|
-| `master` (M0+M1) | 2026-07-15 | `npm run validate` | **91 passed, 0 failed** |
-| `feature/m2-food-catalog-portions` (reported historical baseline) | 2026-07-14 | `npm run validate` | **151 passed, 0 failed** |
-| `feature/mvp-completion` (verified M2 integration baseline) | 2026-07-15 | `npm run validate` | **152 passed, 0 failed** |
+## 5. Verified implementation snapshot
 
-Notes:
+M2 baseline:
 
-- `npm run validate` = `npm run typecheck` + `npm run test`
-- `npm run test` = `npm run build:shared` + `node scripts/validate.mjs`
-- Manual WeChat DevTools and phone checks remain **pending** and must not be claimed as passed
+- bundled system food seed catalog
+- shared food search
+- session-only ad-hoc foods
+- generic plus food-specific portion units
+- single-item live nutrition preview
 
-## 5. Verified implemented architecture
+M3 additions:
 
-### M0 + M1 on `master`
+- shared `meal-service`
+- `Meal.requestId`
+- `MealItem.foodSnapshot`
+- `MealItem.portionGramsPerUnit`
+- `mealApi.create`
+- `mealApi.get`
+- multi-item draft meal UI in `add-meal`
+- server recomputation of item nutrition and meal totals
+- client-safe meal DTOs with no `ownerOpenid` and no `requestId`
 
-- Shared nutrition and validation live in `shared/`
-- `login` derives identity server-side and never returns `openid`
-- `profileApi` manages family profiles with owner scoping
-- `users.defaultFamilyProfileId` is the single source of truth for the default profile
-- Request-level profile idempotency is best-effort, not atomic
+## 6. Important verified facts
 
-### M2 on the verified integration base
+- `shared/` remains the single source of truth for nutrition and validation.
+- `miniprogram/app.ts` no longer hard-imports the git-ignored `env.local.ts`.
+- `mealApi` is no longer a placeholder; M3 create/get is implemented.
+- `aiAnalyze` is still mock-only and non-essential.
+- `npm run build:shared` packages the shared runtime into cloud functions and
+  `miniprogram/lib/shared/`.
 
-- Seed catalog in `shared/data/system-foods.ts`
-- Food search in shared logic, consumed by the Mini Program via generated `miniprogram/lib/shared/`
-- Session-only ad-hoc foods
-- Generic `g` and `ml` units plus food-specific units
-- Portion-to-gram conversion and live single-food nutrition preview
-- Nutrition provenance metadata on foods
-- No meal persistence
-- No `mealApi` create/list/get/update/delete usage from `add-meal`
-- No AI dependency in the M2 `add-meal` flow
+## 7. Known hazards and lessons
 
-## 6. Current deployment/runtime facts
+- CRLF-sensitive validation patterns need care.
+- Do not call `cloud.database()` before `cloud.init()`.
+- Rebuild shared runtime before deploy or Mini Program packaging.
+- Never commit generated `shared/dist/`, `cloudfunctions/*/lib/shared/`, or
+  `miniprogram/lib/shared/`.
+- Meal create replay is currently **best-effort**, not atomic. It uses
+  `(ownerOpenid, requestId)` lookup before/after insert and should be hardened with a unique
+  composite index later.
+- Manual testing is human-only and must not be fabricated.
 
-Verified facts only:
+## 8. Recommended next step
 
-- `login` source exists and is complete for M1
-- `profileApi` source exists and is complete for M1
-- `mealApi` is still a placeholder at this point
-- `aiAnalyze` is mock-only at this point
-- `npm run build:shared` packages the shared runtime into cloud functions and `miniprogram/lib/shared/`
+Continue on `feature/mvp-completion` and implement M4:
 
-Not verified here:
-
-- WeChat DevTools compile/run
-- Cloud function upload status
-- Real device behavior
-- CloudBase collections/indexes/security rules in an actual environment
-
-## 7. Known hazards and lessons learned
-
-- **CRLF safety:** validator regexes must stay CRLF-safe
-- **CloudBase init order:** do not call `cloud.database()` before `cloud.init()`
-- **Generated runtime:** always rebuild shared runtime before deploy or Mini Program packaging
-- **Git ignore discipline:** never commit `shared/dist/`, `cloudfunctions/*/lib/shared/`, or `miniprogram/lib/shared/`
-- **Client runtime packaging:** Mini Program runtime logic must come from the generated `miniprogram/lib/shared/` copy, not direct cross-root runtime imports
-- **No hard import of `env.local.ts`:** git-ignored local override files may be absent in clean clones/worktrees
-- **Manual testing is human-only:** no headless claim of DevTools or phone success is allowed
-
-## 8. Recommended next step from this snapshot
-
-The repository is ready to continue on `feature/mvp-completion`:
-
-1. Keep using `feature/mvp-completion` as the long-lived integration branch
-2. Push it and open one draft PR against `master`
-3. Continue with M3 implementation on top of the verified M2 baseline
-4. Keep updating this handoff after each milestone checkpoint
+1. day-history query flow,
+2. edit/delete behavior,
+3. per-day totals,
+4. docs and checklist updates,
+5. fresh validation run.
 
 ## 9. Human-only actions still expected later
 
-- Configure local/dev CloudBase environment IDs in the git-ignored override file
-- Deploy or redeploy cloud functions from WeChat DevTools
-- Run the manual checklist in DevTools and on a real phone
-- Add any future AI provider secret only in cloud-function environment variables
-- Merge the final PR
-
-## 10. Update protocol
-
-After each milestone checkpoint:
-
-- Update the verified date and branch
-- Update the validation counts
-- Update milestone status
-- Record any newly found hazards
-- Keep branch and PR state current
-- Record only verified deployment facts
+- Configure local/dev CloudBase env ids in the git-ignored override file.
+- Upload changed cloud functions from WeChat DevTools.
+- Run the manual checklist in DevTools and on a real phone.
+- Add any future AI provider secret only in cloud-function environment variables.
+- Merge the final PR.

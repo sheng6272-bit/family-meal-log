@@ -10,7 +10,7 @@
  * (`repository-memory.ts`) keeps everything in RAM.
  */
 
-import type { User, FamilyProfile, IdempotencyKey } from './types';
+import type { User, FamilyProfile, IdempotencyKey, Meal } from './types';
 
 /** Machine-readable error codes the cloud functions map to client responses. */
 export type ServiceErrorCode =
@@ -63,6 +63,16 @@ export interface Repository {
 
   /** Apply a patch to an existing profile (implementation strips `_id`). */
   updateProfile(id: string, patch: Partial<FamilyProfile>): Promise<FamilyProfile>;
+
+  /**
+   * Insert a meal. Implementations SHOULD treat `(ownerOpenid, requestId)` as
+   * the create-idempotency key and return the existing record when a duplicate
+   * create for the same owner/requestId is retried.
+   */
+  createMeal(meal: Meal): Promise<Meal>;
+
+  /** Fetch one meal by id (regardless of owner); caller checks ownership. */
+  getMeal(id: string): Promise<Meal | null>;
 
   /**
    * Look up a previously stored idempotency record scoped by the trusted owner

@@ -5,12 +5,13 @@
  * network access.
  */
 
-import type { User, FamilyProfile, IdempotencyKey } from './types';
+import type { User, FamilyProfile, IdempotencyKey, Meal } from './types';
 import type { Repository } from './repository';
 
 export class InMemoryRepository implements Repository {
   private users: User[] = [];
   private profiles: FamilyProfile[] = [];
+  private meals: Meal[] = [];
   private idempotencyKeys: IdempotencyKey[] = [];
 
   async findUserByOpenid(openid: string): Promise<User | null> {
@@ -58,6 +59,23 @@ export class InMemoryRepository implements Repository {
     const merged: FamilyProfile = { ...this.profiles[idx], ...rest };
     this.profiles[idx] = merged;
     return merged;
+  }
+
+  async createMeal(meal: Meal): Promise<Meal> {
+    const existing = this.meals.find(
+      (m) => m.ownerOpenid === meal.ownerOpenid && m.requestId === meal.requestId,
+    );
+    if (existing) return existing;
+    const stored: Meal = {
+      ...meal,
+      _id: meal._id ?? `meal_${this.meals.length + 1}`,
+    };
+    this.meals.push(stored);
+    return stored;
+  }
+
+  async getMeal(id: string): Promise<Meal | null> {
+    return this.meals.find((m) => m._id === id) ?? null;
   }
 
   async findIdempotencyKey(

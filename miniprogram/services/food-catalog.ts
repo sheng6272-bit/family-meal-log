@@ -76,6 +76,10 @@ export function computePreview(
   return shared.calculateFoodPreview(food, unit, quantity);
 }
 
+export function sumNutritionList(list: NutritionValues[]): NutritionValues {
+  return shared.sumNutrition(list);
+}
+
 /**
  * Create a session-only ad-hoc food and add it to the session list. The
  * returned food is immediately usable for preview/search in this session.

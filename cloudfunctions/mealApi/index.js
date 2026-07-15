@@ -1,31 +1,48 @@
-/**
- * mealApi cloud function (placeholder).
- * Intended as the server entry for meal CRUD once implemented. It will:
- *   - derive openid from context (never trust client-supplied openid)
- *   - re-validate payloads with the SHARED validators (server-side trust)
- *   - recompute nutrition totals via the SHARED nutrition layer
- * For this foundation task it only routes and returns not-implemented.
- *
- * action: 'create' | 'update' | 'delete' | 'listByDate'
- */
 const cloud = require('wx-server-sdk');
+const {
+  createMeal,
+  getMeal,
+  toClientMeal,
+} = require('./lib/shared/services/meal-service');
+const { isServiceError } = require('./lib/shared/repository');
+const { createRepository } = require('./cloudbase-repository');
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 
+function toErrorResult(err) {
+  if (isServiceError(err)) {
+    if (err.code === 'not_found') return { ok: false, error: 'not_found' };
+    if (err.code === 'forbidden') return { ok: false, error: 'forbidden' };
+    if (err.code === 'validation') {
+      return { ok: false, error: 'invalid_input', message: err.message };
+    }
+    return { ok: false, error: err.code, message: err.message };
+  }
+  console.error('[mealApi] unexpected error', err);
+  return { ok: false, error: 'internal_error' };
+}
+
 exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext();
+  if (!OPENID) return { ok: false, error: 'no_openid_context' };
+
   const action = (event && event.action) || 'unknown';
+  const repo = createRepository();
 
-  const supported = ['create', 'update', 'delete', 'listByDate'];
-  if (!supported.includes(action)) {
-    return { ok: false, error: `unsupported action: ${action}` };
+  try {
+    switch (action) {
+      case 'create': {
+        const meal = await createMeal(repo, OPENID, event || {});
+        return { ok: true, meal: toClientMeal(meal) };
+      }
+      case 'get': {
+        const meal = await getMeal(repo, OPENID, event.mealId);
+        return { ok: true, meal: toClientMeal(meal) };
+      }
+      default:
+        return { ok: false, error: `unsupported action: ${action}` };
+    }
+  } catch (err) {
+    return toErrorResult(err);
   }
-
-  // Placeholder: real implementation lands in the meal-logging milestone.
-  // NOTE: openid is derived server-side and is NOT returned to the client.
-  return {
-    ok: false,
-    error: 'not_implemented',
-    action,
-  };
 };

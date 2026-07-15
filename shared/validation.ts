@@ -14,6 +14,7 @@ import {
 } from './constants';
 import type {
   Food,
+  FoodSnapshot,
   FamilyProfile,
   Meal,
   MealItem,
@@ -117,14 +118,46 @@ export function validateFamilyProfile(profile: unknown): ValidationResult {
   return fail(errors);
 }
 
+export function validateFoodSnapshot(
+  snapshot: unknown,
+  path = 'foodSnapshot',
+): ValidationResult {
+  const errors: string[] = [];
+  const s = snapshot as Partial<FoodSnapshot>;
+  if (!s || typeof s !== 'object') return fail([`${path} must be an object`]);
+  if (!isNonEmptyString(s.name)) errors.push(`${path}.name is required`);
+  if (!s.per100g) errors.push(`${path}.per100g is required`);
+  else errors.push(...validateNutrition(s.per100g, `${path}.per100g`).errors);
+  if (!s.source || !FOOD_SOURCES.includes(s.source)) {
+    errors.push(`${path}.source must be one of ${FOOD_SOURCES.join(', ')}`);
+  }
+  if (!s.nutritionMeta || typeof s.nutritionMeta !== 'object') {
+    errors.push(`${path}.nutritionMeta is required`);
+  } else {
+    const meta = s.nutritionMeta as Partial<NutritionDataMetadata>;
+    if (!isNonEmptyString(meta.source)) {
+      errors.push(`${path}.nutritionMeta.source must be a non-empty string`);
+    }
+    if (!isNonEmptyString(meta.version)) {
+      errors.push(`${path}.nutritionMeta.version must be a non-empty string`);
+    }
+  }
+  return fail(errors);
+}
+
 export function validateMealItem(item: unknown, index = 0): ValidationResult {
   const errors: string[] = [];
   const it = item as Partial<MealItem>;
   const at = `items[${index}]`;
   if (!it || typeof it !== 'object') return fail([`${at} must be an object`]);
   if (!isNonEmptyString(it.foodName)) errors.push(`${at}.foodName is required`);
+  if (!it.foodSnapshot) errors.push(`${at}.foodSnapshot is required`);
+  else errors.push(...validateFoodSnapshot(it.foodSnapshot, `${at}.foodSnapshot`).errors);
   if (!isNonNegative(it.quantity)) errors.push(`${at}.quantity must be >= 0`);
   if (!isNonEmptyString(it.portionLabel)) errors.push(`${at}.portionLabel is required`);
+  if (!isFiniteNumber(it.portionGramsPerUnit) || (it.portionGramsPerUnit as number) <= 0) {
+    errors.push(`${at}.portionGramsPerUnit must be a number > 0`);
+  }
   if (!isNonNegative(it.grams)) errors.push(`${at}.grams must be >= 0`);
   if (!it.source || !ITEM_SOURCES.includes(it.source)) {
     errors.push(`${at}.source must be one of ${ITEM_SOURCES.join(', ')}`);
@@ -140,6 +173,7 @@ export function validateMeal(meal: unknown): ValidationResult {
   const m = meal as Partial<Meal>;
   if (!m || typeof m !== 'object') return fail(['meal must be an object']);
   if (!isNonEmptyString(m.ownerOpenid)) errors.push('meal.ownerOpenid is required');
+  if (!isNonEmptyString(m.requestId)) errors.push('meal.requestId is required');
   if (!isNonEmptyString(m.familyProfileId)) errors.push('meal.familyProfileId is required');
   if (!isIsoDate(m.date)) errors.push('meal.date must be YYYY-MM-DD');
   if (!m.mealType || !MEAL_TYPES.includes(m.mealType)) {

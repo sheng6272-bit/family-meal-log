@@ -77,7 +77,7 @@ for (const page of appJson.pages) {
 }
 
 // A3. Every cloud function has index.js + package.json + config.json.
-const cloudFns = ['login', 'mealApi', 'aiAnalyze'];
+const cloudFns = ['login', 'profileApi', 'mealApi', 'aiAnalyze'];
 for (const fn of cloudFns) {
   for (const f of ['index.js', 'package.json', 'config.json']) {
     check(`cloudfn: cloudfunctions/${fn}/${f}`, fileExists(`cloudfunctions/${fn}/${f}`));
@@ -757,18 +757,206 @@ if (!existsSync(distIndex)) {
     check('M2-55. ad-hoc food usable immediately for preview', usablePreview.grams === 100 && usablePreview.nutrition.calories === 200);
   }
 
-  // 56-58. Scope-boundary guards (no meal persistence, no AI).
+  // 56-60. Cross-milestone guards: later milestones may add persistence, but
+  // the food-catalog logic itself must stay isolated from cloud writes and AI.
   {
     const addMealTs = readFileSync(join(ROOT, 'miniprogram/pages/add-meal/add-meal.ts'), 'utf8');
     const addMealWxml = readFileSync(join(ROOT, 'miniprogram/pages/add-meal/add-meal.wxml'), 'utf8');
-    check('M2-56. add-meal page has no mealApi create call', !/mealApi/.test(addMealTs) && !/mealApi/.test(addMealWxml));
-    check('M2-57. add-meal page does not write a Meal record', !/callFunction/.test(addMealTs) && !/meals/.test(addMealTs));
-    check('M2-58. add-meal page has no AI dependency', !/aiAnalyze/.test(addMealTs) && !/aiAnalyze/.test(addMealWxml));
+    const foodCatalogClient = readFileSync(join(ROOT, 'miniprogram/services/food-catalog.ts'), 'utf8');
+    const foodCatalogShared = readFileSync(join(ROOT, 'shared/services/food-catalog-service.ts'), 'utf8');
+    check('M2-56. add-meal page still uses shared food-catalog preview helpers', /foodCatalog/.test(addMealTs) && /computePreview/.test(addMealTs));
+    check('M2-57. client food-catalog service stays cloud-free', !/\bcallFunction\s*\(/.test(foodCatalogClient));
+    check('M2-58. food-catalog shared service stays cloud-free', !/wx-server-sdk/.test(foodCatalogShared) && !/cloud/.test(foodCatalogShared));
+    check('M2-59. add-meal page has no direct AI dependency', !/aiAnalyze/.test(addMealTs) && !/aiAnalyze/.test(addMealWxml));
+    check('M2-60. TypeScript strict typecheck passed (validate gate)', true);
+  }
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n[E] M3 — manual meal logging');
+
+check('M3: shared meal service exists', fileExists('shared/services/meal-service.ts'));
+check('M3: client meal service exists', fileExists('miniprogram/services/meal.ts'));
+check('M3: mealApi repository exists', fileExists('cloudfunctions/mealApi/cloudbase-repository.js'));
+
+if (!existsSync(distIndex)) {
+  check('M3: shared runtime built (run: npm run build:shared)', false);
+} else {
+  const shared = require(distIndex);
+  const {
+    InMemoryRepository,
+    upsertUser,
+    createProfile,
+    createMeal: createMealRecord,
+    getMeal: getMealRecord,
+    toClientMeal,
+    sumNutrition,
+    validateMeal,
+    isServiceError,
+  } = shared;
+
+  const baseSystemItem = {
+    food: {
+      _id: 'sys_white_rice_cooked',
+      name: 'tampered name',
+      per100g: { calories: 999, protein: 99, carb: 99, fat: 99 },
+      source: 'system',
+      nutritionMeta: { source: 'fake', version: '999' },
+    },
+    quantity: 2,
+    portionLabel: '碗',
+  };
+
+  const baseAdHocItem = {
+    food: {
+      name: '自制豆浆',
+      brand: '家庭自制',
+      category: '饮品',
+      per100g: { calories: 35, protein: 3, carb: 3, fat: 1.2 },
+      source: 'user',
+      nutritionMeta: { source: 'client_should_be_ignored', version: 'bad' },
+      ownerOpenid: 'attacker',
+    },
+    quantity: 250,
+    portionLabel: 'ml',
+  };
+
+  function buildMealInput(profileId, requestId = 'meal_req_1') {
+    return {
+      requestId,
+      familyProfileId: profileId,
+      date: '2026-07-15',
+      mealType: 'dinner',
+      totals: { calories: 1, protein: 1, carb: 1, fat: 1 },
+      ownerOpenid: 'attacker',
+      items: [baseSystemItem, baseAdHocItem],
+    };
   }
 
-  // 59-60. Cross-milestone gates (already enforced by the run, documented here).
-  check('M2-59. M1 identity & family-profile tests still pass (0-failure gate)', true);
-  check('M2-60. TypeScript strict typecheck passed (validate gate)', true);
+  {
+    const repo = new InMemoryRepository();
+    await upsertUser(repo, 'meal_owner');
+    const profile = await createProfile(repo, 'meal_owner', { name: '爸爸', relation: 'self' });
+    const created = await createMealRecord(repo, 'meal_owner', buildMealInput(profile._id));
+    const reloaded = await getMealRecord(repo, 'meal_owner', created._id);
+    const totals = sumNutrition(created.items.map((item) => item.nutrition));
+    check('M3-1. create meal returns a stored id', typeof created._id === 'string' && created._id.length > 0);
+    check('M3-2. get meal reloads the same stored record', reloaded._id === created._id && reloaded.items.length === 2);
+    check(
+      'M3-3. server recomputes totals from stored items',
+      created.totals.calories === totals.calories &&
+        created.totals.protein === totals.protein &&
+        created.totals.carb === totals.carb &&
+        created.totals.fat === totals.fat,
+    );
+    check('M3-4. validateMeal accepts the stored meal', validateMeal(created).valid === true);
+    check('M3-5. client supplied totals are ignored', created.totals.calories !== 1);
+    check('M3-6. client supplied ownerOpenid is ignored', created.ownerOpenid === 'meal_owner');
+    check(
+      'M3-7. manual items are stored as confirmed snapshots',
+      created.items.every((item) => item.confirmed === true && item.source === 'manual' && !!item.foodSnapshot),
+    );
+    check(
+      'M3-8. system food nutrition is canonicalized from the seed data',
+      created.items[0].foodName === '熟白米饭' &&
+        created.items[0].nutrition.calories === 348,
+    );
+    check(
+      'M3-9. ad-hoc foods are stored as user-entered snapshots',
+      created.items[1].foodSnapshot.source === 'user' &&
+        created.items[1].foodSnapshot.nutritionMeta.source === 'user_entered',
+    );
+    const dto = toClientMeal(created);
+    check(
+      'M3-10. client meal DTO strips ownerOpenid and requestId',
+      !('ownerOpenid' in dto) && !('requestId' in dto),
+    );
+  }
+
+  {
+    const repo = new InMemoryRepository();
+    await upsertUser(repo, 'meal_owner');
+    const profile = await createProfile(repo, 'meal_owner', { name: '妈妈', relation: 'self' });
+    const first = await createMealRecord(repo, 'meal_owner', buildMealInput(profile._id, 'same_meal_req'));
+    const retry = await createMealRecord(repo, 'meal_owner', buildMealInput(profile._id, 'same_meal_req'));
+    const secondIntent = await createMealRecord(repo, 'meal_owner', buildMealInput(profile._id, 'new_meal_req'));
+    check('M3-11. repeated meal requestId returns the original meal', first._id === retry._id);
+    check('M3-12. different meal requestIds create distinct meals', first._id !== secondIntent._id);
+  }
+
+  {
+    const repo = new InMemoryRepository();
+    await upsertUser(repo, 'owner_a');
+    await upsertUser(repo, 'owner_b');
+    const ownProfile = await createProfile(repo, 'owner_a', { name: '宝宝', relation: 'child' });
+    const foreignProfile = await createProfile(repo, 'owner_b', { name: '宝宝', relation: 'child' });
+    const created = await createMealRecord(repo, 'owner_a', buildMealInput(ownProfile._id, 'owner_a_req'));
+    let foreignCreateBlocked = false;
+    try {
+      await createMealRecord(repo, 'owner_a', buildMealInput(foreignProfile._id, 'owner_a_req_2'));
+    } catch (e) {
+      foreignCreateBlocked = isServiceError(e) && (e.code === 'forbidden' || e.code === 'not_found');
+    }
+    let foreignGetBlocked = false;
+    try {
+      await getMealRecord(repo, 'owner_b', created._id);
+    } catch (e) {
+      foreignGetBlocked = isServiceError(e) && (e.code === 'forbidden' || e.code === 'not_found');
+    }
+    check('M3-13. cannot create a meal for another user’s family profile', foreignCreateBlocked);
+    check('M3-14. cannot read another user’s meal', foreignGetBlocked);
+  }
+
+  {
+    const repo = new InMemoryRepository();
+    await upsertUser(repo, 'invalid_owner');
+    const profile = await createProfile(repo, 'invalid_owner', { name: '测试', relation: 'self' });
+
+    let badDate = false;
+    try {
+      await createMealRecord(repo, 'invalid_owner', {
+        ...buildMealInput(profile._id, 'bad_date_req'),
+        date: '2026/07/15',
+      });
+    } catch (e) {
+      badDate = isServiceError(e) && e.code === 'validation';
+    }
+
+    let badMealType = false;
+    try {
+      await createMealRecord(repo, 'invalid_owner', {
+        ...buildMealInput(profile._id, 'bad_type_req'),
+        mealType: 'brunch',
+      });
+    } catch (e) {
+      badMealType = isServiceError(e) && e.code === 'validation';
+    }
+
+    let badItems = false;
+    try {
+      await createMealRecord(repo, 'invalid_owner', {
+        ...buildMealInput(profile._id, 'bad_items_req'),
+        items: [],
+      });
+    } catch (e) {
+      badItems = isServiceError(e) && e.code === 'validation';
+    }
+
+    let badPortion = false;
+    try {
+      await createMealRecord(repo, 'invalid_owner', {
+        ...buildMealInput(profile._id, 'bad_portion_req'),
+        items: [{ ...baseSystemItem, portionLabel: 'invalid_unit' }],
+      });
+    } catch (e) {
+      badPortion = isServiceError(e) && e.code === 'validation';
+    }
+
+    check('M3-15. invalid local date is rejected', badDate);
+    check('M3-16. invalid mealType is rejected', badMealType);
+    check('M3-17. empty items are rejected', badItems);
+    check('M3-18. invalid portion labels are rejected', badPortion);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -777,4 +965,4 @@ if (failed > 0) {
   console.log('Failed checks:\n - ' + failures.join('\n - '));
   process.exit(1);
 }
-console.log('Foundation + M1 + M2 are internally consistent. \u2713');
+console.log('Foundation + M1 + M2 + M3 are internally consistent. \u2713');
